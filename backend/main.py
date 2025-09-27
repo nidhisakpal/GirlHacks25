@@ -1,113 +1,136 @@
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
 import os
+from typing import Dict, List
+
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
 from dotenv import load_dotenv
+
+load_dotenv()  # reads .env in the working directory
 
 from app.auth import verify_token
 from app.chat import ChatService
-from app.models import ChatRequest, ChatResponse, Citation
-from app.database import get_database
-
-# Load environment variables
-load_dotenv()
-
-app = FastAPI(
-    title="Gaia Mentorship API",
-    description="Backend API for the Gaia Goddess-Guided Mentorship platform",
-    version="1.0.0"
+from app.database import (
+    append_intents,
+    close_mongo_connection,
+    connect_to_mongo,
+    create_or_update_user,
+    get_chat_history,
+    get_database,
+    update_user_goddess,
 )
+from app.goddess_matcher import GoddessMatcher
+from app.models import ChatRequest, ChatResponse, MatchResult, QuizAnswers, User
 
-# CORS middleware
+
+
+app = FastAPI(title="Gaia Mentorship API", version="0.1.0")
+
+# CORS configuration
+origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=[origin.strip() for origin in origins if origin],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Security
-security = HTTPBearer()
-
-# Initialize services
 chat_service = ChatService()
+goddess_matcher = GoddessMatcher()
 
-@app.get("/")
-async def root():
-    return {"message": "Gaia Mentorship API", "status": "healthy"}
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "version": "1.0.0"}
+@app.on_event("startup")
+async def startup_event() -> None:
+    connect_to_mongo()
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    close_mongo_connection()
+
+
+@app.get("/healthz")
+async def healthcheck() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/api/config/personas")
+async def list_personas() -> Dict[str, Dict[str, str]]:
+    return goddess_matcher.personas()
+
+
+@app.get("/api/user", response_model=User)
+async def get_user_profile(
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    token: Dict = Depends(verify_token),
+):
+    user_id = str(token.get("sub"))
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: no user ID")
+
+    profile = await create_or_update_user(
+        db,
+        user_id,
+        email=token.get("email", "unknown@njit.edu"),
+        profile={
+            "name": token.get("name"),
+            "picture": token.get("picture"),
+        },
+    )
+    return profile
+
+
+@app.post("/api/match", response_model=MatchResult)
+async def match_goddess_endpoint(
+    quiz_answers: QuizAnswers,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    token: Dict = Depends(verify_token),
+):
+    user_id = str(token.get("sub"))
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: no user ID")
+
+    match_result = goddess_matcher.match_for_quiz(quiz_answers.answers)
+    await update_user_goddess(db, user_id, match_result.goddess, quiz_answers.model_dump())
+    await append_intents(db, user_id, ["quiz"])
+    return match_result
+
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(
+async def chat_endpoint(
     request: ChatRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    token: Dict = Depends(verify_token),
 ):
-    """Main chat endpoint for goddess-guided conversations"""
-    try:
-        # Verify Auth0 token
-        user_info = await verify_token(credentials.credentials)
-        
-        # Process chat request
-        response = await chat_service.process_message(
-            message=request.message,
-            goddess=request.goddess,
-            user_id=user_info.get("sub"),
-            user_email=user_info.get("email")
-        )
-        
-        return response
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing chat request: {str(e)}"
-        )
+    user_id = str(token.get("sub"))
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: no user ID")
 
-@app.get("/api/goddesses")
-async def get_goddesses():
-    """Get available goddess personas"""
-    return {
-        "goddesses": [
-            {
-                "id": "athena",
-                "name": "Athena",
-                "domain": "Academics & Wisdom",
-                "description": "Goddess of wisdom, strategy, and academic excellence"
-            },
-            {
-                "id": "aphrodite", 
-                "name": "Aphrodite",
-                "domain": "Well-being & Self-care",
-                "description": "Goddess of love, beauty, and emotional wellness"
-            },
-            {
-                "id": "hera",
-                "name": "Hera", 
-                "domain": "Career & Leadership",
-                "description": "Goddess of marriage, family, and power"
-            }
-        ]
-    }
+    response = await chat_service.get_response(user_id, request.message, db)
+    return response
 
-@app.get("/api/user/profile")
-async def get_user_profile(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+
+@app.get("/api/chat/history")
+async def get_history_endpoint(
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    token: Dict = Depends(verify_token),
 ):
-    """Get user profile information"""
-    try:
-        user_info = await verify_token(credentials.credentials)
-        return {"user": user_info}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
-        )
+    user_id = str(token.get("sub"))
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: no user ID")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    history = await get_chat_history(db, user_id)
+    return [message.model_dump() for message in history.messages]
+
+
+@app.get("/api/public")
+def public_endpoint() -> Dict[str, str]:
+    return {"message": "This is a public endpoint"}
+
+
+@app.get("/api/private")
+def private_endpoint(token: Dict = Depends(verify_token)) -> Dict[str, Dict]:
+    return {"message": "This is a private endpoint", "user": token}
+

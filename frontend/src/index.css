@@ -1,0 +1,45 @@
+﻿@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f7f5ff;
+    color: #1f1a2d;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: 'Playfair Display', serif;
+  }
+
+  ::selection {
+    background: rgba(99, 102, 241, 0.15);
+    color: #1f1a2d;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply rounded-3xl border border-indigo-100/60 bg-white/80 shadow-sm backdrop-blur;
+  }
+
+  .pill-badge {
+    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-wide;
+  }
+
+  .resource-chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50/60 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:border-indigo-200 hover:bg-indigo-100;
+  }
+}

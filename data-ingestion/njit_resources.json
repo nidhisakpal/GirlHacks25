@@ -1,0 +1,90 @@
+[
+  {
+    "title": "Women in STEM Networking Event",
+    "description": "Connect with successful women in STEM fields",
+    "date": "2024-02-15",
+    "time": "6:00 PM",
+    "location": "Campus Center",
+    "url": "https://highlanderhub.njit.edu/events/123",
+    "source": "highlander_hub",
+    "category": "events",
+    "scraped_at": "2025-09-27T15:40:25.130901",
+    "id": "highlander_hub_-7381205795852025546"
+  },
+  {
+    "title": "Study Group: Data Structures",
+    "description": "Collaborative study session for CS 114",
+    "date": "2024-02-20",
+    "time": "7:00 PM",
+    "location": "Library Study Room 3",
+    "url": "https://highlanderhub.njit.edu/events/124",
+    "source": "highlander_hub",
+    "category": "academics",
+    "scraped_at": "2025-09-27T15:40:25.130921",
+    "id": "highlander_hub_3064114329664037240"
+  },
+  {
+    "title": "Software Engineering Intern",
+    "company": "Tech Corp",
+    "description": "Summer internship for computer science students",
+    "location": "Remote",
+    "url": "https://njit.joinhandshake.com/jobs/456",
+    "source": "handshake",
+    "category": "career",
+    "deadline": "2024-03-01",
+    "scraped_at": "2025-09-27T15:40:25.130926",
+    "id": "handshake_8851934644773945739"
+  },
+  {
+    "title": "Data Analyst Position",
+    "company": "Analytics Inc",
+    "description": "Entry-level position for recent graduates",
+    "location": "Newark, NJ",
+    "url": "https://njit.joinhandshake.com/jobs/457",
+    "source": "handshake",
+    "category": "career",
+    "deadline": "2024-03-15",
+    "scraped_at": "2025-09-27T15:40:25.130928",
+    "id": "handshake_8152948736609014364"
+  },
+  {
+    "title": "Math Tutoring Center",
+    "description": "Free tutoring for all math courses",
+    "url": "https://www.njit.edu/academics/tutoring/math",
+    "source": "tutoring",
+    "category": "academics",
+    "hours": "Mon-Fri 9AM-5PM",
+    "scraped_at": "2025-09-27T15:40:25.130930",
+    "id": "tutoring_8471928007354555189"
+  },
+  {
+    "title": "Writing Center",
+    "description": "Help with essays, reports, and presentations",
+    "url": "https://www.njit.edu/academics/tutoring/writing",
+    "source": "tutoring",
+    "category": "academics",
+    "hours": "Mon-Thu 10AM-8PM",
+    "scraped_at": "2025-09-27T15:40:25.130932",
+    "id": "tutoring_968759527150040263"
+  },
+  {
+    "title": "Counseling Center",
+    "description": "Free confidential counseling services",
+    "url": "https://www.njit.edu/student-life/health-wellness/counseling",
+    "source": "wellness",
+    "category": "wellness",
+    "phone": "(973) 596-3414",
+    "scraped_at": "2025-09-27T15:40:25.130935",
+    "id": "wellness_8467167040659722433"
+  },
+  {
+    "title": "Stress Management Workshop",
+    "description": "Learn techniques to manage academic stress",
+    "url": "https://www.njit.edu/student-life/health-wellness/stress-management",
+    "source": "wellness",
+    "category": "wellness",
+    "schedule": "Every Tuesday 2PM",
+    "scraped_at": "2025-09-27T15:40:25.130937",
+    "id": "wellness_8861868693933193408"
+  }
+]
