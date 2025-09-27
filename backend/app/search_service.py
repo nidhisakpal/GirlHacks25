@@ -58,7 +58,7 @@ class SearchService:
                             "url",
                             "source",
                             "description",
-                            "published",
+                            "retrieved",
                             "tags",
                         ],
                     }
