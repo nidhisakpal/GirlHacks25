@@ -1,180 +1,220 @@
+﻿import asyncio
+import logging
 import os
+from typing import List, Optional
+
 import google.generativeai as genai
-from typing import List, Dict, Any
-from app.models import ChatResponse, Citation
+
+from app.database import add_chat_message, append_intents, get_chat_history, get_user
 from app.goddess_matcher import GoddessMatcher
+from app.models import ChatMessage, ChatResponse, Citation, IntentPrediction
 from app.search_service import SearchService
-from app.database import get_database
+
+LOGGER = logging.getLogger(__name__)
+
+
+class GeminiClient:
+    def __init__(self) -> None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY not set")
+        genai.configure(api_key=api_key)
+        self._model = genai.GenerativeModel("gemini-pro")
+
+    async def generate(self, prompt: str) -> str:
+        loop = asyncio.get_event_loop()
+
+        def _run() -> str:
+            response = self._model.generate_content(prompt)
+            return getattr(response, "text", "").strip()
+
+        return await loop.run_in_executor(None, _run)
+
+
+class IntentClassifier:
+    """Lightweight keyword classifier with extensibility for LLM refinement."""
+
+    KEYWORDS = {
+        "academics": [
+            "class",
+            "course",
+            "study",
+            "exam",
+            "professor",
+            "grade",
+            "tutor",
+            "research",
+        ],
+        "career": [
+            "internship",
+            "job",
+            "career",
+            "resume",
+            "interview",
+            "handshake",
+            "co-op",
+            "salary",
+        ],
+        "events": [
+            "event",
+            "workshop",
+            "club",
+            "meetup",
+            "hackathon",
+            "seminar",
+            "career fair",
+        ],
+        "wellbeing": [
+            "stress",
+            "wellness",
+            "mental",
+            "therapy",
+            "health",
+            "burnout",
+            "sleep",
+            "balance",
+        ],
+    }
+
+    DEFAULT_INTENT = "academics"
+
+    async def predict(self, message: str) -> IntentPrediction:
+        text = message.lower()
+        best_intent = self.DEFAULT_INTENT
+        best_score = 0
+        best_hits: List[str] = []
+
+        for intent, keywords in self.KEYWORDS.items():
+            hits = [keyword for keyword in keywords if keyword in text]
+            score = len(hits)
+            if score > best_score:
+                best_intent = intent
+                best_score = score
+                best_hits = hits
+
+        if best_score == 0:
+            rationale = ["no strong keyword match; defaulting to academics"]
+        else:
+            rationale = [f"matched '{kw}'" for kw in best_hits]
+
+        confidence = 0.35 + 0.15 * best_score
+        return IntentPrediction(intent=best_intent, confidence=min(confidence, 0.95), rationale=rationale)
+
 
 class ChatService:
-    def __init__(self):
-        # Initialize Gemini
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        self.model = genai.GenerativeModel('gemini-pro')
-        
-        # Initialize services
-        self.goddess_matcher = GoddessMatcher()
-        self.search_service = SearchService()
-    
-    async def process_message(
-        self, 
-        message: str, 
-        goddess: str, 
-        user_id: str, 
-        user_email: str
-    ) -> ChatResponse:
-        """Process a chat message and return goddess response"""
-        
-        # Get or create user profile
-        db = await get_database()
-        user_profile = await self._get_or_create_user_profile(db, user_id, user_email)
-        
-        # Determine best goddess if not specified
-        if not goddess or goddess == "auto":
-            goddess = await self.goddess_matcher.match_goddess(message, user_profile)
-        
-        # Classify intent
-        intent = await self._classify_intent(message)
-        
-        # Search for relevant resources if needed
-        citations = []
-        if intent in ["events", "academics", "career", "resources"]:
-            citations = await self.search_service.search_resources(message, intent)
-        
-        # Generate goddess response
-        response_text = await self._generate_response(
-            message, goddess, intent, citations, user_profile
+    def __init__(
+        self,
+        matcher: Optional[GoddessMatcher] = None,
+        search_service: Optional[SearchService] = None,
+        intent_classifier: Optional[IntentClassifier] = None,
+        gemini_client: Optional[GeminiClient] = None,
+    ) -> None:
+        self._matcher = matcher or GoddessMatcher()
+        self._search = search_service or SearchService()
+        self._intent_classifier = intent_classifier or IntentClassifier()
+        self._gemini = gemini_client or GeminiClient()
+        personas = self._matcher.personas()
+        self._persona_lookup = {pid: data for pid, data in personas.items()}
+
+    async def get_response(self, user_id: str, message: str, db) -> ChatResponse:
+        user = await get_user(db, user_id)
+        if not user:
+            raise ValueError("User profile not found")
+
+        history = await get_chat_history(db, user_id)
+
+        user_entry = await add_chat_message(
+            db,
+            user_id,
+            role="user",
+            content=message,
         )
-        
-        # Save chat message
-        await self._save_chat_message(db, user_id, message, response_text, goddess, citations)
-        
+
+        recent_messages = history.messages + [user_entry]
+        recent_messages = recent_messages[-6:]
+
+        intent_prediction = await self._intent_classifier.predict(message)
+        match_result = self._matcher.match_for_message(message, intent_prediction.intent)
+        citations = await self._search.search(message, intent_prediction.intent)
+
+        goddess_id = match_result.goddess
+        persona = self._persona_lookup.get(goddess_id, {})
+        goddess_name = persona.get("display_name", goddess_id.title())
+        persona_prompt = persona.get("persona", "You are a helpful mentor.")
+
+        prompt = self._build_prompt(
+            persona_prompt,
+            goddess_name,
+            recent_messages,
+            message,
+            citations,
+        )
+
+        llm_text = await self._gemini.generate(prompt)
+        response_text = self._post_process(llm_text)
+
+        await append_intents(db, user_id, [intent_prediction.intent])
+
+        await add_chat_message(
+            db,
+            user_id,
+            role="assistant",
+            content=response_text,
+            goddess=goddess_id,
+            intent=intent_prediction.intent,
+            citations=citations,
+        )
+
         return ChatResponse(
-            response=response_text,
-            goddess=goddess,
-            citations=citations
+            message=response_text,
+            goddess=goddess_id,
+            intent=intent_prediction.intent,
+            citations=citations,
+            trace={
+                "intent": intent_prediction.model_dump(),
+                "match": match_result.model_dump(),
+            },
         )
-    
-    async def _get_or_create_user_profile(self, db, user_id: str, user_email: str):
-        """Get or create user profile"""
-        profile = await db.user_profiles.find_one({"user_id": user_id})
-        
-        if not profile:
-            profile = {
-                "user_id": user_id,
-                "email": user_email,
-                "preferred_goddess": None,
-                "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z"
-            }
-            await db.user_profiles.insert_one(profile)
-        
-        return profile
-    
-    async def _classify_intent(self, message: str) -> str:
-        """Classify user intent using Gemini"""
-        prompt = f"""
-        Classify the following user message into one of these categories:
-        - events: Questions about campus events, activities, clubs
-        - academics: Questions about courses, study help, tutoring
-        - career: Questions about jobs, internships, career advice
-        - wellness: Questions about mental health, stress, self-care
-        - general: General questions or conversation
-        
-        Message: "{message}"
-        
-        Respond with only the category name.
-        """
-        
-        try:
-            response = self.model.generate_content(prompt)
-            intent = response.text.strip().lower()
-            
-            # Fallback to keyword matching
-            if intent not in ["events", "academics", "career", "wellness", "general"]:
-                intent = self._keyword_classify_intent(message)
-            
-            return intent
-        except Exception as e:
-            print(f"Error classifying intent: {e}")
-            return self._keyword_classify_intent(message)
-    
-    def _keyword_classify_intent(self, message: str) -> str:
-        """Fallback keyword-based intent classification"""
-        message_lower = message.lower()
-        
-        if any(word in message_lower for word in ["event", "club", "activity", "meeting"]):
-            return "events"
-        elif any(word in message_lower for word in ["study", "course", "class", "homework", "exam", "tutor"]):
-            return "academics"
-        elif any(word in message_lower for word in ["job", "career", "internship", "resume", "interview"]):
-            return "career"
-        elif any(word in message_lower for word in ["stress", "anxiety", "mental health", "wellness", "self-care"]):
-            return "wellness"
-        else:
-            return "general"
-    
-    async def _generate_response(
-        self, 
-        message: str, 
-        goddess: str, 
-        intent: str, 
+
+    def _build_prompt(
+        self,
+        persona_prompt: str,
+        goddess_name: str,
+        history: List[ChatMessage],
+        latest_message: str,
         citations: List[Citation],
-        user_profile: Dict[str, Any]
     ) -> str:
-        """Generate goddess-voiced response using Gemini"""
-        
-        goddess_prompts = {
-            "athena": "You are Athena, goddess of wisdom and strategy. Respond with scholarly wisdom, practical academic advice, and strategic thinking. Be encouraging but direct.",
-            "aphrodite": "You are Aphrodite, goddess of love and beauty. Respond with warmth, empathy, and focus on emotional wellness and self-care. Be nurturing and supportive.",
-            "hera": "You are Hera, goddess of marriage and power. Respond with authority, leadership advice, and career guidance. Be confident and empowering."
-        }
-        
-        goddess_prompt = goddess_prompts.get(goddess, goddess_prompts["athena"])
-        
-        # Build context with citations
-        context = ""
-        if citations:
-            context = "\n\nRelevant NJIT Resources:\n"
-            for citation in citations:
-                context += f"- {citation.title}: {citation.url}\n"
-        
-        prompt = f"""
-        {goddess_prompt}
-        
-        User message: "{message}"
-        Intent: {intent}
-        
-        {context}
-        
-        Respond as the goddess would, providing helpful, grounded advice. If you reference resources, mention them naturally in your response. Keep responses concise but meaningful (2-3 sentences). Never fabricate events or information not provided in the context.
-        """
-        
-        try:
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-        except Exception as e:
-            print(f"Error generating response: {e}")
-            return "I apologize, but I'm having trouble responding right now. Please try again."
-    
-    async def _save_chat_message(
-        self, 
-        db, 
-        user_id: str, 
-        message: str, 
-        response: str, 
-        goddess: str, 
-        citations: List[Citation]
-    ):
-        """Save chat message to database"""
-        chat_message = {
-            "message_id": f"{user_id}_{int(time.time())}",
-            "user_id": user_id,
-            "message": message,
-            "response": response,
-            "goddess": goddess,
-            "citations": [citation.dict() for citation in citations],
-            "timestamp": "2024-01-01T00:00:00Z"
-        }
-        
-        await db.chat_messages.insert_one(chat_message)
+        citation_lines = []
+        for idx, citation in enumerate(citations, start=1):
+            citation_lines.append(
+                f"[{idx}] {citation.title} - {citation.snippet[:220]} (Source: {citation.source}) {citation.url}"
+            )
+        if not citation_lines:
+            citation_lines.append("No resources matched. If the topic requires facts, acknowledge the gap.")
+
+        history_lines: List[str] = []
+        for message in history[-5:]:
+            speaker = goddess_name if message.role == "assistant" else "Student"
+            history_lines.append(f"{speaker}: {message.content.strip()}")
+
+        prompt = (
+            f"{persona_prompt}\n\n"
+            "You mentor an NJIT student. Respond in the goddess's voice, precise and encouraging.\n"
+            "Ground every factual statement in the provided resources. When you cite, use inline "
+            "brackets like [1]. Offer next steps and keep responses under 180 words.\n"
+            "If resources are missing for the request, state that you will follow up after "
+            "checking with campus partners.\n\n"
+            f"Resources:\n{'\n'.join(citation_lines)}\n\n"
+            f"Conversation so far:\n{'\n'.join(history_lines)}\n\n"
+            f"Student: {latest_message.strip()}\n"
+            f"{goddess_name}:"
+        )
+        return prompt
+
+    @staticmethod
+    def _post_process(text: str) -> str:
+        cleaned = text.strip()
+        if cleaned.startswith("\n"):
+            cleaned = cleaned.lstrip()
+        return cleaned
+

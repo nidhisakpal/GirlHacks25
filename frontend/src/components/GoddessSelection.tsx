@@ -1,98 +1,100 @@
-import React from 'react'
-import { BookOpen, Heart, Briefcase } from 'lucide-react'
+﻿import React, { useEffect, useState } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
+import { ArrowRight, BookOpen, Briefcase, Heart } from 'lucide-react'
+import clsx from 'clsx'
 
-interface Goddess {
-  id: string
-  name: string
-  domain: string
-  description: string
-  icon: React.ReactNode
-  color: string
+import { fetchPersonas, GoddessPersona } from '../services/api'
+
+const iconMap: Record<string, JSX.Element> = {
+  athena: <BookOpen className="h-8 w-8" />,
+  aphrodite: <Heart className="h-8 w-8" />,
+  hera: <Briefcase className="h-8 w-8" />,
 }
 
-const goddesses: Goddess[] = [
-  {
-    id: 'athena',
-    name: 'Athena',
-    domain: 'Academics & Wisdom',
-    description: 'Goddess of wisdom, strategy, and academic excellence. She guides you through coursework, study strategies, and intellectual growth.',
-    icon: <BookOpen className="w-8 h-8" />,
-    color: 'athena'
-  },
-  {
-    id: 'aphrodite',
-    name: 'Aphrodite',
-    domain: 'Well-being & Self-care',
-    description: 'Goddess of love, beauty, and emotional wellness. She helps you balance life, manage stress, and nurture your mental health.',
-    icon: <Heart className="w-8 h-8" />,
-    color: 'aphrodite'
-  },
-  {
-    id: 'hera',
-    name: 'Hera',
-    domain: 'Career & Leadership',
-    description: 'Goddess of marriage, family, and power. She empowers you in career development, leadership skills, and professional growth.',
-    icon: <Briefcase className="w-8 h-8" />,
-    color: 'hera'
-  }
-]
+const accentClass: Record<string, string> = {
+  athena: 'text-goddess-athena',
+  aphrodite: 'text-goddess-aphrodite',
+  hera: 'text-goddess-hera',
+}
 
 const GoddessSelection: React.FC = () => {
-  return (
-    <div className="max-w-4xl mx-auto">
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Choose Your Divine Guide
-        </h1>
-        <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-          Each goddess offers unique wisdom tailored to your needs. Select the one that resonates with your current journey.
-        </p>
-      </div>
+  const { loginWithRedirect, isAuthenticated } = useAuth0()
+  const [personas, setPersonas] = useState<GoddessPersona[]>([])
+  const [error, setError] = useState<string | null>(null)
 
-      <div className="grid md:grid-cols-3 gap-8">
-        {goddesses.map((goddess) => (
-          <div
-            key={goddess.id}
-            className={`goddess-card ${goddess.color} cursor-pointer hover:scale-105`}
+  useEffect(() => {
+    fetchPersonas()
+      .then((data) => setPersonas(Object.values(data)))
+      .catch((err) => {
+        console.error('Failed to load personas', err)
+        setError('Unable to load goddess profiles right now. Please try again soon.')
+      })
+  }, [])
+
+  return (
+    <section className="mx-auto flex max-w-5xl flex-col gap-10">
+      <header className="rounded-3xl border border-indigo-100 bg-white/80 p-10 text-center shadow-sm backdrop-blur">
+        <p className="text-sm uppercase tracking-[0.3em] text-indigo-400">Gaia at GirlHacks</p>
+        <h1 className="mt-4 text-4xl font-semibold text-gray-900">NJIT mentorship in goddess form</h1>
+        <p className="mt-4 text-base text-gray-600">
+          Gaia listens to what you need, matches you with a Greek goddess persona, and pulls real NJIT resources from Highlander Hub, Handshake, and support centers. No fluff—just grounded guidance.
+        </p>
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={() => loginWithRedirect()}
+            className="flex items-center gap-2 rounded-full bg-goddess-athena px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:shadow-xl"
           >
-            <div className="text-center mb-6">
-              <div className={`text-goddess-${goddess.color} mb-4 flex justify-center`}>
-                {goddess.icon}
+            {isAuthenticated ? 'Head to your chat' : 'Log in with your NJIT email'}
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      </header>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="grid gap-6 md:grid-cols-3">
+        {personas.map((persona) => (
+          <article
+            key={persona.id}
+            className="group relative h-full overflow-hidden rounded-3xl border border-transparent bg-white/80 p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
+          >
+            <div className="absolute inset-0 rounded-3xl border border-indigo-100 opacity-0 transition group-hover:opacity-100" />
+            <div className="relative flex flex-col gap-4">
+              <div className={clsx('inline-flex h-16 w-16 items-center justify-center rounded-full bg-indigo-50 text-indigo-500', accentClass[persona.id] ?? 'text-indigo-500')}>
+                {iconMap[persona.id] ?? <SparkleIcon />}
               </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">
-                {goddess.name}
-              </h3>
-              <p className={`text-goddess-${goddess.color} font-semibold mb-4`}>
-                {goddess.domain}
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">{persona.display_name}</h3>
+                <p className={clsx('text-sm font-medium', accentClass[persona.id] ?? 'text-indigo-500')}>{persona.tagline}</p>
+              </div>
+              <p className="text-sm leading-relaxed text-gray-600">
+                {persona.persona}
               </p>
             </div>
-            
-            <p className="text-gray-700 text-center leading-relaxed">
-              {goddess.description}
-            </p>
-            
-            <div className="mt-6 text-center">
-              <button
-                className={`px-6 py-3 bg-goddess-${goddess.color} text-white rounded-lg font-semibold hover:opacity-90 transition-opacity`}
-                onClick={() => {
-                  // TODO: Implement goddess selection logic
-                  console.log(`Selected ${goddess.name}`)
-                }}
-              >
-                Choose {goddess.name}
-              </button>
-            </div>
-          </div>
+          </article>
         ))}
       </div>
 
-      <div className="mt-12 text-center">
-        <p className="text-gray-500 text-sm">
-          Don't know which goddess to choose? Start chatting and Gaia will automatically match you with the most suitable guide.
-        </p>
-      </div>
-    </div>
+      <footer className="rounded-3xl border border-gray-200 bg-gray-50/70 p-6 text-sm text-gray-600">
+        <p className="font-medium text-gray-800">What happens next?</p>
+        <ul className="mt-3 list-disc space-y-1 pl-5">
+          <li>Authenticate with your NJIT account via Auth0.</li>
+          <li>Tell Gaia what you need—academics, well-being, or career.</li>
+          <li>Each reply cites NJIT resources so you can follow through quickly.</li>
+        </ul>
+      </footer>
+    </section>
   )
 }
+
+const SparkleIcon = () => (
+  <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
 
 export default GoddessSelection

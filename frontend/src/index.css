@@ -1,49 +1,45 @@
+﻿@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
-
 @layer base {
-  html {
-    font-family: 'Inter', sans-serif;
+  :root {
+    color-scheme: light;
   }
-  
-  h1, h2, h3, h4, h5, h6 {
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f7f5ff;
+    color: #1f1a2d;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: 'Playfair Display', serif;
+  }
+
+  ::selection {
+    background: rgba(99, 102, 241, 0.15);
+    color: #1f1a2d;
   }
 }
 
 @layer components {
-  .goddess-card {
-    @apply rounded-lg border-2 p-6 transition-all duration-300 hover:shadow-lg;
+  .glass-card {
+    @apply rounded-3xl border border-indigo-100/60 bg-white/80 shadow-sm backdrop-blur;
   }
-  
-  .goddess-card.athena {
-    @apply border-goddess-athena bg-gradient-to-br from-indigo-50 to-purple-50;
+
+  .pill-badge {
+    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-wide;
   }
-  
-  .goddess-card.aphrodite {
-    @apply border-goddess-aphrodite bg-gradient-to-br from-pink-50 to-rose-50;
-  }
-  
-  .goddess-card.hera {
-    @apply border-goddess-hera bg-gradient-to-br from-emerald-50 to-green-50;
-  }
-  
-  .chat-message {
-    @apply rounded-lg p-4 mb-4 max-w-3xl;
-  }
-  
-  .chat-message.user {
-    @apply bg-gray-100 ml-auto;
-  }
-  
-  .chat-message.goddess {
-    @apply bg-white border border-gray-200 mr-auto;
-  }
-  
-  .citation-chip {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors;
+
+  .resource-chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50/60 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:border-indigo-200 hover:bg-indigo-100;
   }
 }

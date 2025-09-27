@@ -1,6 +1,6 @@
-import React from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+﻿import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
+
 import ChatInterface from './components/ChatInterface'
 import GoddessSelection from './components/GoddessSelection'
 import LoadingSpinner from './components/LoadingSpinner'
@@ -16,21 +16,20 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-50">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-rose-50">
         <Header />
-        
-        <main className="container mx-auto px-4 py-8">
+        <main className="mx-auto w-full max-w-6xl px-6 py-10">
           <Routes>
-            <Route 
-              path="/" 
-              element={
-                isAuthenticated ? <ChatInterface /> : <GoddessSelection />
-              } 
+            <Route
+              path="/"
+              element={isAuthenticated ? <ChatInterface /> : <GoddessSelection />}
             />
-            <Route path="/chat" element={<ChatInterface />} />
+            <Route
+              path="/chat"
+              element={isAuthenticated ? <ChatInterface /> : <Navigate to="/" replace />}
+            />
           </Routes>
         </main>
-        
         <Footer />
       </div>
     </Router>

@@ -1,46 +1,88 @@
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
-from datetime import datetime
+﻿from __future__ import annotations
 
-class ChatRequest(BaseModel):
-    message: str
-    goddess: Optional[str] = "athena"
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
 
 class Citation(BaseModel):
+    """Reference to an indexed NJIT resource used to ground a response."""
+
+    id: str
     title: str
     url: str
     source: str
-    date: Optional[str] = None
-    description: Optional[str] = None
+    snippet: str = Field(default="")
+    published: Optional[str] = None
 
-class ChatResponse(BaseModel):
-    response: str
-    goddess: str
-    citations: List[Citation] = []
-    timestamp: datetime = datetime.now()
-
-class UserProfile(BaseModel):
-    user_id: str
-    email: str
-    name: Optional[str] = None
-    preferred_goddess: Optional[str] = None
-    created_at: datetime = datetime.now()
-    updated_at: datetime = datetime.now()
 
 class ChatMessage(BaseModel):
-    message_id: str
-    user_id: str
-    message: str
-    response: str
-    goddess: str
-    citations: List[Citation] = []
-    timestamp: datetime = datetime.now()
+    """Single message in a conversation log."""
 
-class GoddessConfig(BaseModel):
-    id: str
-    name: str
-    domain: str
-    description: str
-    keywords: List[str]
-    personality_traits: List[str]
-    response_style: str
+    role: str  # "user" | "assistant"
+    content: str
+    goddess: Optional[str] = None
+    intent: Optional[str] = None
+    citations: List[Citation] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ChatHistory(BaseModel):
+    user_id: str = Field(..., alias="_id")
+    messages: List[ChatMessage] = Field(default_factory=list)
+
+    class Config:
+        populate_by_name = True
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+class IntentPrediction(BaseModel):
+    intent: str
+    confidence: float
+    rationale: List[str] = Field(default_factory=list)
+
+
+class MatchResult(BaseModel):
+    goddess: str
+    confidence: float
+    rationale: List[str] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    message: str
+    goddess: str
+    intent: str
+    citations: List[Citation] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    trace: Dict[str, Any] = Field(default_factory=dict)
+
+
+class QuizAnswers(BaseModel):
+    answers: List[int]
+
+
+class User(BaseModel):
+    user_id: str = Field(..., alias="_id")
+    email: str
+    name: Optional[str] = None
+    profile: Dict[str, Any] = Field(default_factory=dict)
+    selected_goddess: Optional[str] = None
+    quiz_results: Optional[Dict[str, Any]] = None
+    intents_seen: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "_id": "auth0|123456789",
+                "email": "user@example.com",
+                "selected_goddess": "Athena",
+                "profile": {"major": "Computer Science"},
+            }
+        }
