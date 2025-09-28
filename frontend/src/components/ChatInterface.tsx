@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Loader2,
   Send,
-  Sparkles,
   User,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -25,6 +24,12 @@ import {
   confirmHandoff,       // <-- NEW
   declineHandoff,       // <-- NEW
 } from '../services/api'
+
+import gaiaPortrait from '../Images/Logos/Gaia_Logo.png'
+import athenaPortrait from '../Images/Logos/Athena_Logo.png'
+import aphroditePortrait from '../Images/Logos/Aphrodite_Logo.png'
+import artemisPortrait from '../Images/Logos/Artemis_Logo.png'
+import tychePortrait from '../Images/Logos/Tyche_Logo.png'
 
 // ----- Types ---------------------------------------------------------------
 
@@ -87,6 +92,14 @@ const goddessThemes: Record<
 }
 
 const getTheme = (goddess?: GoddessKey) => goddessThemes[goddess ?? 'gaia']
+
+const goddessPortraits: Record<GoddessKey, string> = {
+  gaia: gaiaPortrait,
+  athena: athenaPortrait,
+  aphrodite: aphroditePortrait,
+  artemis: artemisPortrait,
+  tyche: tychePortrait,
+}
 
 // ----- Component -----------------------------------------------------------
 
@@ -362,8 +375,16 @@ const ChatInterface: React.FC = () => {
       <header className="rounded-2xl border border-indigo-100 bg-white/70 p-6 shadow-sm backdrop-blur">
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-4">
-            <div className={clsx('flex h-14 w-14 items-center justify-center rounded-full text-white', theme.avatar)}>
-              <Sparkles className="h-7 w-7" />
+            <div
+              className={clsx(
+                'relative flex h-20 w-20 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-sm',
+              )}
+            >
+              <img
+                src={goddessPortraits[currentGoddess]}
+                alt={`${persona.display_name} illustration`}
+                className="h-full w-full object-contain"
+              />
             </div>
             <div className="flex flex-col gap-1">
               <p className="text-sm uppercase tracking-wide text-indigo-400">Gaia Mentorship</p>
@@ -453,11 +474,21 @@ const ChatInterface: React.FC = () => {
                 <div className="flex items-start gap-3">
                   <div
                     className={clsx(
-                      'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-white',
-                      isAssistant ? activeTheme.avatar : 'bg-gray-400',
+                      'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full',
+                      isAssistant
+                        ? 'overflow-hidden border border-white/60 bg-white p-0.5 shadow-sm'
+                        : 'bg-gray-400 text-white',
                     )}
                   >
-                    {isAssistant ? <Bot className="h-5 w-5" /> : <User className="h-5 w-5" />}
+                    {isAssistant ? (
+                      <img
+                        src={goddessPortraits[themedKey]}
+                        alt={`${personas[themedKey]?.display_name ?? 'Gaia'} avatar`}
+                        className="h-full w-full object-contain"
+                      />
+                    ) : (
+                      <User className="h-5 w-5" />
+                    )}
                   </div>
                   <div className="flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
