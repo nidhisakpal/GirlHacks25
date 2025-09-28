@@ -1,6 +1,6 @@
 ﻿# Gaia — Goddess-Guided Mentorship
 
-Gaia pairs NJIT women, women-aligned, and nonbinary students with Greek goddess mentors who deliver grounded, citation-backed guidance. Students describe what they need; Gaia matches intent to a persona (Athena for academics, Aphrodite for well-being, Hera for career) and returns actionable next steps with live NJIT links.
+Gaia pairs women on campus with Greek goddess mentors who deliver grounded, citation-backed guidance. Students describe what they need and Gaia matches intent to a persona. Athena for academics, Aphrodite for well-being, Artemis for professional help like jobs and research, Tyche for scholarships and returns actionable next steps with live campus-specific links.
 
 ## Highlights
 
