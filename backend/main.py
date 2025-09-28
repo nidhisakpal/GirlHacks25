@@ -7,6 +7,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from dotenv import load_dotenv
 
+from pydantic import BaseModel
+
 load_dotenv()  # reads .env in the working directory
 
 from app.auth import verify_token
@@ -112,6 +114,47 @@ async def chat_endpoint(
     return response
 
 
+@app.post("/api/chat/handoff", response_model=ChatResponse)
+async def chat_handoff(
+    payload: Dict,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    token: Dict = Depends(verify_token),
+):
+    user_id = str(token.get("sub"))
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: no user ID")
+
+    action = (payload or {}).get("action")
+    if action == "confirm":
+        # ChatService.confirm_handoff must exist (see step 2)
+        return await chat_service.confirm_handoff(user_id, db)
+    if action == "decline":
+        # ChatService.decline_handoff must exist (see step 2)
+        return await chat_service.decline_handoff(user_id, db)
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_action")
+
+
+@app.post("/api/chat/reset")
+async def reset_goddess(
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    token: Dict = Depends(verify_token),
+):
+    user_id = str(token.get("sub"))
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: no user ID")
+    await update_user_goddess(
+        db,
+        user_id,
+        goddess=None,
+        quiz_results={},
+        suggested=None,
+        handoff_stage=None,
+    )
+    return {"ok": True}
+
+
+
 @app.get("/api/chat/history")
 async def get_history_endpoint(
     db: AsyncIOMotorDatabase = Depends(get_database),
@@ -122,7 +165,11 @@ async def get_history_endpoint(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: no user ID")
 
     history = await get_chat_history(db, user_id)
-    return [message.model_dump() for message in history.messages]
+    return {
+        key: [message.model_dump() for message in thread]
+        for key, thread in history.messages.items()
+    }
+
 
 
 @app.get("/api/public")

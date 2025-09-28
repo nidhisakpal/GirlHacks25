@@ -1,27 +1,23 @@
 ﻿import os
 from datetime import datetime
-from typing import Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
+
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from app.models import ChatHistory, ChatMessage, Citation, User
 
-# Mongo connection handles
 _client: Optional[AsyncIOMotorClient] = None
 _database: Optional[AsyncIOMotorDatabase] = None
 
 
 def connect_to_mongo() -> None:
-    """Initialise the global Mongo client lazily on startup."""
-
     global _client, _database
     if _client:
         return
-
     mongodb_url = os.getenv("MONGODB_URL")
     if not mongodb_url:
         raise ValueError("MONGODB_URL not set")
-
     _client = AsyncIOMotorClient(mongodb_url)
     db_name = os.getenv("MONGODB_DB", "gaia_mentorship")
     _database = _client.get_database(db_name)
@@ -37,19 +33,14 @@ def close_mongo_connection() -> None:
 async def get_database() -> AsyncIOMotorDatabase:
     if _database is None:
         connect_to_mongo()
-    assert _database is not None  # for type checkers
+    assert _database is not None
     return _database
 
-
-# ---------------------------------------------------------------------------
-# Users
 # ---------------------------------------------------------------------------
 
 async def get_user(db: AsyncIOMotorDatabase, user_id: str) -> Optional[User]:
     document = await db.users.find_one({"_id": user_id})
-    if not document:
-        return None
-    return User.model_validate(document)
+    return User.model_validate(document) if document else None
 
 
 async def create_or_update_user(
@@ -67,39 +58,57 @@ async def create_or_update_user(
                 "profile": profile or {},
                 "updated_at": now,
             },
-            "$setOnInsert": {
-                "created_at": now,
-            },
+            "$setOnInsert": {"created_at": now},
         },
         upsert=True,
     )
     document = await db.users.find_one({"_id": user_id})
-    assert document is not None
+    assert document
     return User.model_validate(document)
 
 
 async def update_user_goddess(
-    db: AsyncIOMotorDatabase,
+    db,
     user_id: str,
-    goddess: str,
+    goddess: Optional[str] = None,
     quiz_results: Optional[dict] = None,
-) -> None:
+    suggested: Optional[str] = None,
+    handoff_stage: Optional[str] = None,
+    *,
+    routing_state: Optional[dict] = None,
+    handoff_declined: Optional[dict] = None,
+    extra: Optional[Dict[str, Any]] = None,  # future-proof
+):
+    """
+    Upserts a user doc and updates selective fields.
+    Pass None to leave a field unchanged.
+    """
+    update: Dict[str, Any] = {}
+    if goddess is not None:
+        update["selected_goddess"] = goddess
+    if quiz_results is not None:
+        update["quiz_results"] = quiz_results
+    if suggested is not None:
+        update["suggested_goddess"] = suggested
+    if handoff_stage is not None:
+        update["handoff_stage"] = handoff_stage
+    if routing_state is not None:
+        update["routing_state"] = routing_state
+    if handoff_declined is not None:
+        update["handoff_declined"] = handoff_declined
+    if extra:
+        update.update(extra)
+
+    # Assuming users collection; adjust if your name differs
     await db.users.update_one(
         {"_id": user_id},
-        {
-            "$set": {
-                "selected_goddess": goddess,
-                "quiz_results": quiz_results or {},
-                "updated_at": datetime.utcnow(),
-            }
-        },
+        {"$set": update},
         upsert=True,
     )
 
 
-async def append_intents(db: AsyncIOMotorDatabase, user_id: str, intents: Iterable[str]) -> None:
-    """Record seen intents to help with analytics and matching."""
 
+async def append_intents(db: AsyncIOMotorDatabase, user_id: str, intents: Iterable[str]) -> None:
     await db.users.update_one(
         {"_id": user_id},
         {
@@ -109,15 +118,13 @@ async def append_intents(db: AsyncIOMotorDatabase, user_id: str, intents: Iterab
         upsert=True,
     )
 
-
-# ---------------------------------------------------------------------------
-# Chat history
 # ---------------------------------------------------------------------------
 
 async def get_chat_history(db: AsyncIOMotorDatabase, user_id: str) -> ChatHistory:
-    document = await db.chat_histories.find_one({"_id": user_id})
-    if not document:
-        return ChatHistory(user_id=user_id, messages=[])
+    document = await db.chat_histories.find_one({"_id": user_id}) or {"_id": user_id, "messages": {}}
+    # Ensure every goddess key exists
+    for key in ["gaia", "athena", "aphrodite", "artemis", "tyche"]:
+        document.setdefault("messages", {}).setdefault(key, [])
     return ChatHistory.model_validate(document)
 
 
@@ -135,7 +142,7 @@ async def add_chat_message(
     *,
     role: str,
     content: str,
-    goddess: Optional[str] = None,
+    goddess: str,
     intent: Optional[str] = None,
     citations: Optional[list[Citation]] = None,
 ) -> ChatMessage:
@@ -149,8 +156,8 @@ async def add_chat_message(
     await db.chat_histories.update_one(
         {"_id": user_id},
         {
-            "$push": {"messages": _serialise_message(message)},
             "$setOnInsert": {"_id": user_id},
+            "$push": {f"messages.{goddess}": _serialise_message(message)},
         },
         upsert=True,
     )
@@ -160,15 +167,17 @@ async def add_chat_message(
 async def replace_chat_history(
     db: AsyncIOMotorDatabase,
     user_id: str,
-    messages: list[ChatMessage],
+    messages: dict[str, list[ChatMessage]],
 ) -> None:
     await db.chat_histories.update_one(
         {"_id": user_id},
         {
             "$set": {
-                "messages": [_serialise_message(message) for message in messages]
+                "messages": {
+                    key: [_serialise_message(msg) for msg in thread]
+                    for key, thread in messages.items()
+                }
             },
         },
         upsert=True,
     )
-

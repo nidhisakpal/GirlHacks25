@@ -125,60 +125,79 @@ class GoddessMatcher:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-
     @staticmethod
     def _load_config() -> Dict[str, Dict]:
         return {
             "athena": {
                 "display_name": "Athena",
-                "tagline": "Strategic wisdom for academics and research.",
+                "tagline": "Strategic wisdom for classes and research.",
                 "persona": (
-                    "You are Athena, goddess of wisdom and strategy, a calm mentor who "
-                    "guides NJIT scholars through coursework, research, and complex decisions. "
-                    "Cite verifiable campus resources that back every recommendation."
+                    "You are Athena, goddess of wisdom and strategy. Guide NJIT students through "
+                    "coursework, projects, research, and academic career decisions. Cite official "
+                    "NJIT resources and offer concrete next steps."
                 ),
                 "keywords": [
                     "study", "exam", "class", "course", "research", "homework", "professor",
-                    "grades", "tutoring", "academic", "library",
+                    "grades", "tutoring", "academic", "library", "office hours", "capstone",
                 ],
                 "keyword_weight": 1.5,
-                "intent_boost": {"academics": 3.0, "events": 0.5},
+                "intent_boost": {"academics": 3.0, "career": 1.0},
                 "trait_weights": {"wisdom": 3, "strategy": 2, "independence": 1},
                 "bias": 1.0,
             },
             "aphrodite": {
                 "display_name": "Aphrodite",
-                "tagline": "Well-being, community, and balance.",
+                "tagline": "Confidence, balance, and community.",
                 "persona": (
-                    "You are Aphrodite, goddess of care and connection, helping students nurture "
-                    "well-being, friendships, and a sustainable NJIT experience. "
-                    "Offer accessible resources for wellness, counseling, and community."),
+                    "You are Aphrodite, goddess of care and connection. Support NJIT students with "
+                    "self-esteem, wellness, balance, peer relationships, and mental health. "
+                    "Always ground suggestions in campus wellbeing resources."
+                ),
                 "keywords": [
-                    "stress", "wellness", "balance", "mental", "health", "friend", "community",
-                    "counsel", "support group", "mindfulness", "self-care",
-                ],
-                "keyword_weight": 1.3,
-                "intent_boost": {"wellbeing": 3.0, "events": 1.0},
-                "trait_weights": {"nurturing": 3, "independence": 1},
-                "bias": 0.8,
-            },
-            "hera": {
-                "display_name": "Hera",
-                "tagline": "Leadership, internships, and professional polish.",
-                "persona": (
-                    "You are Hera, goddess of leadership and resolve, championing professional "
-                    "growth for NJIT students. Offer decisive guidance for internships, career "
-                    "fairs, networking, and campus leadership programs."),
-                "keywords": [
-                    "career", "internship", "job", "resume", "interview", "co-op", "leadership",
-                    "network", "handshake", "career fair", "professional",
+                    "stress", "burnout", "wellness", "self-esteem", "confidence",
+                    "mental health", "therapy", "counseling", "friend", "community", "mindfulness",
                 ],
                 "keyword_weight": 1.4,
-                "intent_boost": {"career": 3.0, "events": 1.5},
-                "trait_weights": {"strategy": 2, "independence": 2, "wisdom": 1},
+                "intent_boost": {"wellbeing": 3.0},
+                "trait_weights": {"nurturing": 3, "independence": 1},
+                "bias": 0.9,
+            },
+            "artemis": {
+                "display_name": "Artemis",
+                "tagline": "Mentorship, internships, and sisterhood.",
+                "persona": (
+                    "You are Artemis, goddess of the hunt and protective sisterhood. Help NJIT students "
+                    "find mentors, internships, co-ops, research positions, and professional development. "
+                    "Highlight NJIT mentorship programs and networking opportunities."
+                ),
+                "keywords": [
+                    "mentor", "mentorship", "internship", "job", "career", "co-op", "networking",
+                    "resume", "portfolio", "professional", "industry", "shadowing",
+                ],
+                "keyword_weight": 1.4,
+                "intent_boost": {"career": 2.5, "academics": 1.0},
+                "trait_weights": {"strategy": 2, "independence": 3, "wisdom": 1},
                 "bias": 1.2,
             },
+            "tyche": {
+                "display_name": "Tyche",
+                "tagline": "Scholarships, grants, and financial fortune.",
+                "persona": (
+                    "You are Tyche, goddess of fortune. Guide NJIT students toward scholarships, grants, "
+                    "emergency aid, and financial planning resources. Offer timelines, application tips, "
+                    "and direct links."
+                ),
+                "keywords": [
+                    "scholarship", "scholarships", "grant", "financial aid", "funding", "stipend",
+                    "money", "tuition", "payment", "emergency fund", "fellowship",
+                ],
+                "keyword_weight": 1.6,
+                "intent_boost": {"scholarships": 3.0},
+                "trait_weights": {"strategy": 1, "wisdom": 1, "independence": 1},
+                "bias": 1.3,
+            },
         }
+
 
     @property
     def _trait_pool(self) -> List[str]:
