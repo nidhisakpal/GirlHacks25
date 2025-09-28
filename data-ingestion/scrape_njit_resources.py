@@ -204,7 +204,7 @@ class WebScraper:
         if ".njit.edu" in parsed.netloc:
             text = self._extract_main_text(soup, preferred_div_id="block-system-main")
         elif "campuslabs" in parsed.netloc:
-            text = self._extract_main_text(soup, preferred_div_id="event-discovery-list")
+            return self._extract_campuslabs_events(base_url=parsed.netloc)
         else:
             text = self._extract_main_text(soup, preferred_div_id=None)
 
@@ -252,6 +252,57 @@ class WebScraper:
             results = await asyncio.gather(*tasks)
         return [r for r in results if r]
 
+    def _extract_campuslabs_events(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        anchors = soup.select('#event-discovery-list a[href*="/engage/event/"]')
+        for a in anchors:
+            href = self._normalize_url(base_url, a.get("href"))
+            title_el = a.select_one("h3")
+            title = title_el.get_text(strip=True) if title_el else (href or "CampusLabs Event")
+
+            rows = a.select('div[style*="padding: 0.5rem 0px 1rem 1rem"] > div')
+            dt_text = rows[0].get_text(strip=True) if len(rows) >= 1 else None
+            location = rows[1].get_text(strip=True) if len(rows) >= 2 else None
+
+            start_iso = None
+            if dt_text:
+                try:
+                    norm = dt_text.replace(" at ", " ")
+                    start_iso = dtparse.parse(norm, fuzzy=True).isoformat()
+                except Exception:
+                    pass
+
+            org = None
+            org_span = a.select_one('div[style*="background-color: rgb(249, 249, 249)"] span')
+            if org_span:
+                org = org_span.get_text(strip=True)
+
+            img_div = a.select_one('div[role="img"]')
+            image = None
+            if img_div:
+                rel = self._bg_image_from_style(img_div.get("style", ""))
+                image = urljoin(base_url, rel) if rel else None
+
+            parts = [p for p in [dt_text, location, org] if p]
+            desc = " • ".join(parts) if parts else ""
+
+            tags = ["events"]
+            low = (title or "").lower()
+            for kw in ["soccer", "hackathon", "workshop", "career", "seminar", "club", "athletics", "fair"]:
+                if kw in low:
+                    tags.append(kw)
+
+            events.append({
+                "id": (href or title).rstrip("/"),
+                "title": title,
+                "url": href or "",
+                "source": urlparse(href or base_url).netloc,
+                "description": desc or (title or "")[:200],
+                "retrieved": None,
+                "tags": tags,
+                "text": " | ".join([t for t in [title, dt_text, location, org] if t])
+            })
+        return events
 
 # ---------------------------------------------------------------------
 # SearchService (scrapes first if corpus missing/outdated, then searches)
