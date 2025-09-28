@@ -202,9 +202,11 @@ class WebScraper:
         meta = self._extract_metadata(soup)
         #text = self._extract_main_text(soup)
         if ".njit.edu" in parsed.netloc:
-         text = self._extract_main_text(soup, preferred_div_id="block-system-main")
+            text = self._extract_main_text(soup, preferred_div_id="block-system-main")
+        elif "campuslabs" in parsed.netloc:
+            text = self._extract_main_text(soup, preferred_div_id="event-discovery-list")
         else:
-         text = self._extract_main_text(soup, preferred_div_id=None)
+            text = self._extract_main_text(soup, preferred_div_id=None)
 
 
         final_url = meta.get("canonical") or str(r.url)
