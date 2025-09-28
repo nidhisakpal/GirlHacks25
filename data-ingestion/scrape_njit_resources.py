@@ -210,7 +210,7 @@ class WebScraper:
         final_url = meta.get("canonical") or str(r.url)
 
         return {
-            "id": final_url.split('/')[-1].replace('.', '').replace('?', '').replace('&', ''),
+            "id": final_url.split('/')[-1].replace('.', '').replace('?', '').replace('&', '')[:20],
             "title": meta["title"] or final_url,
             "url": final_url,
             "source": urlparse(final_url).netloc,
