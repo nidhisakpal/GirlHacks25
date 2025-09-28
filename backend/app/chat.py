@@ -166,6 +166,19 @@ class ChatService:
 
         citations = await self._search.search(message, intent_prediction.intent)
 
+        routing_state_payload = None
+        if decision["mode"] == "suggest" and suggested_goddess:
+            routing_state_payload = {
+                "score": match_result.confidence,
+                "intent": intent_prediction.intent,
+                "message": message,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            if citations:
+                routing_state_payload["citations"] = [citation.model_dump() for citation in citations]
+            if match_result.rationale:
+                routing_state_payload["rationale"] = match_result.rationale
+
         if decision["mode"] == "suggest" and suggested_goddess:
             response_text = await self._generate_handoff_suggestion(
                 target_goddess,
@@ -195,10 +208,7 @@ class ChatService:
                 "goddess": target_goddess,
                 "suggested": suggested_goddess,
                 "handoff_stage": "awaiting_confirmation",
-                "routing_state": {
-                    "score": match_result.confidence,
-                    "intent": intent_prediction.intent,
-                },
+                "routing_state": routing_state_payload,
             }
         elif not user.selected_goddess:
             update_kwargs = {
@@ -259,28 +269,33 @@ class ChatService:
         intent_confidence: float,
         message: str,
     ) -> dict:
-        """Choose whether to stay, suggest a handoff, or auto-switch personas."""
+        """Choose whether to stay with the current goddess or request a handoff."""
 
         decision = {"mode": "stay", "target": current, "suggested": None}
         suggested = match_result.goddess
         if not suggested or suggested == current:
             return decision
 
-        score = match_result.confidence
+        score = match_result.confidence or 0.0
         message_lower = message.lower()
-        has_switching_cue = any(cue in message_lower for cue in self._switching_cues)
+        explicit_switch = any(cue in message_lower for cue in self._switching_cues)
+        has_intent_signal = intent_confidence >= self._intent_suggestion_floor
+
+        should_consider = (
+            score >= self._handoff_suggest_threshold
+            or explicit_switch
+            or has_intent_signal
+        )
+        if not should_consider:
+            return decision
 
         if score >= self._auto_switch_threshold or (
-            has_switching_cue and score >= self._handoff_suggest_threshold
+            explicit_switch and score >= self._handoff_suggest_threshold
         ):
             decision.update({"mode": "switch", "target": suggested})
             return decision
 
-        if score >= self._handoff_suggest_threshold or (
-            intent_confidence >= self._intent_suggestion_floor and has_switching_cue
-        ):
-            decision.update({"mode": "suggest", "suggested": suggested})
-
+        decision.update({"mode": "suggest", "suggested": suggested})
         return decision
 
     async def _handle_confirmation_response(self, user_id: str, message: str, db, user) -> ChatResponse:
@@ -414,32 +429,72 @@ class ChatService:
 
         previous = user.selected_goddess or "gaia"
         new_goddess = user.suggested_goddess
+        routing_state = getattr(user, "routing_state", None) or {}
+        intent_hint = routing_state.get("intent")
+        message_text = routing_state.get("message")
+        rationale = routing_state.get("rationale") or []
+
+        history = await get_chat_history(db, user_id)
+
+        if not message_text:
+            previous_thread = history.messages.get(previous, [])
+            for msg in reversed(previous_thread):
+                if msg.role == "user":
+                    message_text = msg.content
+                    break
+        if not message_text:
+            message_text = "I need help following up on my last question."
+
+        citations_payload = routing_state.get("citations") or []
+        citations: List[Citation] = []
+        try:
+            citations = [Citation(**item) for item in citations_payload]
+        except Exception:
+            citations = []
+
+        if not citations:
+            citations = await self._search.search(message_text, intent_hint)
+
         await update_user_goddess(
             db, user_id, new_goddess,
             quiz_results=user.quiz_results or {},
-            suggested=None, handoff_stage=None
+            suggested=None, handoff_stage=None, routing_state=None
         )
 
-        # Generate welcome message
-        response_text = await self._generate_handoff_welcome(new_goddess)
-        
+        thread_messages = history.messages.get(new_goddess, [])
+        user_entry = await add_chat_message(
+            db, user_id, role="user", content=message_text, goddess=new_goddess
+        )
+
+        recent_messages = thread_messages[-6:] + [user_entry]
+        response_text = await self._generate_response(
+            new_goddess, recent_messages, message_text, citations
+        )
+        response_intent = intent_hint or "handoff_confirmed"
+
+        await append_intents(db, user_id, [response_intent])
         await add_chat_message(
             db, user_id, role="assistant", content=response_text,
-            goddess=new_goddess, intent="handoff_welcome", citations=[]
+            goddess=new_goddess, intent=response_intent, citations=citations
         )
+
+        trace = {
+            "stage": None,
+            "current_goddess": new_goddess,
+            "previous_goddess": previous,
+            "switched": True,
+            "mode": "switch",
+            "confirmed": True,
+        }
+        if rationale:
+            trace["handoff_reason"] = rationale
 
         return ChatResponse(
             message=response_text,
             goddess=new_goddess,
-            intent="handoff_welcome",
-            citations=[],
-            trace={
-                "stage": None,
-                "current_goddess": new_goddess,
-                "previous_goddess": previous,
-                "switched": True,
-                "mode": "switch",
-            }
+            intent=response_intent,
+            citations=citations,
+            trace=trace,
         )
 
     async def decline_handoff(self, user_id: str, db) -> ChatResponse:
@@ -451,7 +506,7 @@ class ChatService:
         await update_user_goddess(
             db, user_id, current,
             quiz_results=user.quiz_results or {},
-            suggested=None, handoff_stage=None
+            suggested=None, handoff_stage=None, routing_state=None
         )
 
         # Generate acknowledgment
