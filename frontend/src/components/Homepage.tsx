@@ -27,7 +27,7 @@ const Homepage: React.FC<HomepageProps> = ({ children }) => {
         {isAuthenticated && (
           <button
             onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
-            className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-white/20 hover:text-white"
+            className="inline-flex items-center gap-1 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-white/20 hover:text-white"
           >
             <LogOut className="h-4 w-4" />
             Sign out
