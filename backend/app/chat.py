@@ -19,7 +19,7 @@ class GeminiClient:
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY not set")
         genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel("gemini-pro")
+        self._model = genai.GenerativeModel("models/gemini-2.5-flash")
 
     async def generate(self, prompt: str) -> str:
         loop = asyncio.get_event_loop()

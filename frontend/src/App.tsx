@@ -1,5 +1,8 @@
 ﻿import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
+import { apiClient } from './services/api'   // make sure apiClient is exported
+import { useEffect } from 'react'
+
 
 import ChatInterface from './components/ChatInterface'
 import GoddessSelection from './components/GoddessSelection'
@@ -8,7 +11,21 @@ import Header from './components/Header'
 import Footer from './components/Footer'
 
 function App() {
-  const { isLoading, isAuthenticated } = useAuth0()
+  const { isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0()
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+
+    const syncUser = async () => {
+      const token = await getAccessTokenSilently()
+      await apiClient.get('/api/user', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    }
+
+    void syncUser()
+  }, [isAuthenticated, getAccessTokenSilently])
+
 
   if (isLoading) {
     return <LoadingSpinner />
