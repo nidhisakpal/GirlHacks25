@@ -211,6 +211,29 @@ class WebScraper:
 
         final_url = meta.get("canonical") or str(r.url)
 
+        tags = []
+
+        keywords = ['research', 'academic', 'professional', 'academia', 'job', 'company visit',
+                    'study abroad', 'international', 'travel', 'scholarship', 'financial', 'finance',
+                    'grant', 'funding', 'health', 'wellness', 'mental health', 'well being', 'study',
+                    'education', 'career', 'tutorial', 'workshop', 'seminar', 'conference', 'lab', 
+                    'data science', 'science', 'computer', 'internship', 'career fair', 'resume', 
+                    'hiring', 'employer', 'new grad', 'workplace', 'growth', 'career growth', 
+                    'cover letter', 'linkedin', 'networking', 'interview', 'technical', 'mock interview',
+                    'mentor', 'immigration', 'global', 'culture', 'immersion', 'fellowship', 'visa',
+                    'skills', 'tuition', 'loan', 'budget', 'sponsorship', 'fundraise', 'fundraising',
+                    'counseling', 'therapy', 'stress', 'anxiety', 'depression', 'support group',
+                    'peer support', 'balance', 'self-care', 'nutrition', 'fitness', 'sports', 'recreation',
+                    'student club', 'community', 'belonging', 'housing', 'residence', 'peer', 'resident',
+                    'coding', 'programming', 'software', 'engineering', 'machine learning',
+                    'data science', 'cybersecurity', 'technology', 'innovation', 'design', 'productivity',
+                    'online learning'
+                    ]
+
+        for keyword in keywords:
+            if keyword in text:
+                tags.append(keyword)
+
         return {
             "id": final_url.split('/')[-1].replace('.', '').replace('?', '').replace('&', ''),
             "title": meta["title"] or final_url,
@@ -218,7 +241,7 @@ class WebScraper:
             "source": urlparse(final_url).netloc,
             "description": meta["description"] or text[:300],
             "retrieved": meta["retrieved"],
-            "tags": [],
+            "tags": tags,
             "text": text,
         }
 
