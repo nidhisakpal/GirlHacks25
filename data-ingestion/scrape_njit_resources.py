@@ -328,25 +328,27 @@ if __name__ == "__main__":
         svc = SearchService()
         # 1) Build/refresh corpus from a starter set of pages
         seed_urls = [
-    "https://www.njit.edu/",
-    "https://njit.campuslabs.com/engage/events",
-    "https://www.njit.edu/financialaid/merit-based-scholarships",
-    "https://www.njit.edu/financialaid/scholarship-universe-njit",
-    "https://www.njit.edu/research/",
-    "https://research.njit.edu/bioscience-and-bioengineering",
-    "https://research.njit.edu/data-science-and-management",
-    "https://research.njit.edu/environment-and-sustainability",
-    "https://research.njit.edu/robotics-and-machine-intelligence",
-    "https://research.njit.edu/uri/",
-    "https://www.njit.edu/counseling/services",
-    "https://www.njit.edu/counseling/mantra-health-mental-health-wellness",
-    "https://www.njit.edu/counseling/uwill-mental-health-and-wellness-service",
-    "https://app.uwill.com/login",
-    "https://hub.mantrahealth.com/login?utm_content=70&utm_source=schoolsitereferral&utm_medium=digital&utm_campaign=schoolsitereferral&to=%2F%3Futm_content%3D70%26utm_source%3Dschoolsitereferral%26utm_medium%3Ddigital%26utm_campaign%3Dschoolsitereferral",
-    "https://www.njit.edu/tlc/facilities",
-    "https://www.njit.edu/tlc/",
-            
-           
+            "https://www.njit.edu/",
+            "https://njit.campuslabs.com/engage/events",
+            "https://www.njit.edu/financialaid/merit-based-scholarships",
+            "https://www.njit.edu/financialaid/scholarship-universe-njit",
+            "https://www.njit.edu/research/",
+            "https://research.njit.edu/bioscience-and-bioengineering",
+            "https://research.njit.edu/data-science-and-management",
+            "https://research.njit.edu/environment-and-sustainability",
+            "https://research.njit.edu/robotics-and-machine-intelligence",
+            "https://research.njit.edu/uri/",
+            "https://www.njit.edu/counseling/services",
+            "https://www.njit.edu/counseling/mantra-health-mental-health-wellness",
+            "https://www.njit.edu/counseling/uwill-mental-health-and-wellness-service",
+            "https://app.uwill.com/login",
+            "https://hub.mantrahealth.com/login?utm_content=70&utm_source=schoolsitereferral&utm_medium=digital&utm_campaign=schoolsitereferral&to=%2F%3Futm_content%3D70%26utm_source%3Dschoolsitereferral%26utm_medium%3Ddigital%26utm_campaign%3Dschoolsitereferral",
+            "https://www.njit.edu/tlc/facilities",
+            "https://www.njit.edu/tlc/",
+            "https://www.njit.edu/studyabroad/",
+            "https://www.njit.edu/studyabroad/#tab-1",
+            "https://www.njit.edu/studyabroad/exchange-partners",
+            "https://www.njit.edu/studyabroad/studyabroadprograms"
         ]
         await svc.build_or_update_corpus(seed_urls, replace=False)
 
@@ -373,44 +375,54 @@ async def add_manual_resources(manual: List[Dict[str, Any]], corpus_path: str = 
 
 
 asyncio.run(add_manual_resources([
-  {
-    "id": "khanacademy",
-    "title": "Khan Academy",
-    "url": "https://www.khanacademy.org/",
-    "source": "Khan Academy",
-    "description": "Free online courses, lessons, and practice in math, science, computing, economics, and more.",
-    "retrieved": None,
-    "tags": ["academic help", "academic", "knowledge"],
-    "text": "Educational videos and exercises across math, physics, chemistry, computer science, finance, and test prep."
-  },
-  {
-    "id": "geeksforgeeks",
-    "title": "GeeksforGeeks",
-    "url": "https://www.geeksforgeeks.org/",
-    "source": "GeeksforGeeks",
-    "description": "Computer science portal with tutorials, coding problems, interview preparation, and courses.",
-    "retrieved": None,
-    "tags": ["academic help", "coding", "knowledge", "career"],
-    "text": "Articles, coding practice, and learning resources for programming, data structures, algorithms, and technical interview prep."
-  },
-  {
-    "id": "alexlorenlee",
-    "title": "Alex Lorén Lee",
-    "url": "https://www.youtube.com/@alexlorenlee",
-    "source": "YouTube",
-    "description": "Math educator sharing clear explanations and problem-solving strategies.",
-    "retrieved": None,
-    "tags": ["academic help", "math", "knowledge"],
-    "text": "YouTube channel focused on mathematics with intuitive explanations and detailed walkthroughs of problem-solving methods."
-  },
-  {
-    "id": "PhysicsNinja",
-    "title": "Physics Ninja",
-    "url": "https://www.youtube.com/@PhysicsNinja",
-    "source": "YouTube",
-    "description": "Physics tutorials covering mechanics, electromagnetism, and exam preparation.",
-    "retrieved": None,
-    "tags": ["academic help", "physics", "knowledge"],
-    "text": "YouTube channel with physics lectures, examples, and problem solving aimed at helping students succeed in physics courses."
-  }
+    {
+        "id": "https://www.youtube.com/@TheOrganicChemistryTutor",
+        "title": "Organic Chemistry Tutor",
+        "url": "https://www.youtube.com/@TheOrganicChemistryTutor",
+        "source": "YouTube",
+        "description": "Videos on chemistry, college math, stocks and bonds, personal finance.",
+        "retrieved": None,
+        "tags": ["academic help", "academic", "knowledge", "mathematics", "math", "finance", "stocks"],
+        "text": "Youtube videos with examples and problem solving for chemistry, science, math, finance, stocks, bonds, and more."
+    },
+    {
+        "id": "khanacademy",
+        "title": "Khan Academy",
+        "url": "https://www.khanacademy.org/",
+        "source": "Khan Academy",
+        "description": "Free online courses, lessons, and practice in math, science, computing, economics, and more.",
+        "retrieved": None,
+        "tags": ["academic help", "academic", "knowledge", "math", "mathematics", "videos", "practice"],
+        "text": "Educational videos and exercises across math, physics, chemistry, computer science, finance, and test prep."
+    },
+    {
+        "id": "geeksforgeeks",
+        "title": "GeeksforGeeks",
+        "url": "https://www.geeksforgeeks.org/",
+        "source": "GeeksforGeeks",
+        "description": "Computer science portal with tutorials, coding problems, interview preparation, and courses.",
+        "retrieved": None,
+        "tags": ["academic help", "coding", "knowledge", "career", "computer science"],
+        "text": "Articles, coding practice, and learning resources for programming, data structures, algorithms, and technical interview prep."
+    },
+    {
+        "id": "alexlorenlee",
+        "title": "Alex Lorén Lee",
+        "url": "https://www.youtube.com/@alexlorenlee",
+        "source": "YouTube",
+        "description": "Math educator sharing clear explanations and problem-solving strategies.",
+        "retrieved": None,
+        "tags": ["academic help", "math", "java", "knowledge", "mathematics"],
+        "text": "YouTube channel focused on mathematics with intuitive explanations and detailed walkthroughs of problem-solving methods."
+    },
+    {
+        "id": "PhysicsNinja",
+        "title": "Physics Ninja",
+        "url": "https://www.youtube.com/@PhysicsNinja",
+        "source": "YouTube",
+        "description": "Physics tutorials covering mechanics, electromagnetism, and exam preparation.",
+        "retrieved": None,
+        "tags": ["academic help", "physics", "knowledge"],
+        "text": "YouTube channel with physics lectures, examples, and problem solving aimed at helping students succeed in physics courses."
+    }
 ]))
