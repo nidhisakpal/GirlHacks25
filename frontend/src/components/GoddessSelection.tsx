@@ -6,10 +6,14 @@ import { fetchPersonas, GoddessPersona } from '../services/api'
 import athenaImg from '../Images/Logos/Athena_Logo.png'
 import aphroditeImg from '../Images/Logos/Aphrodite_Logo.png'
 import gaiaImg from '../Images/Logos/Gaia_Logo.png'
+import artemisImg from '../Images/Logos/Artemis_Logo.png'
+import tycheImg from '../Images/Logos/Tyche_Logo.png'
 
 const iconMap: Record<string, JSX.Element> = {
   athena: <img src={athenaImg} alt="Athena" className="h-16 w-16 rounded-full object-cover" />,
   aphrodite: <img src={aphroditeImg} alt="Aphrodite" className="h-16 w-16 rounded-full object-cover" />,
+  artemis: <img src={artemisImg} alt="Artemis" className="h-16 w-16 rounded-full object-cover" />,
+  tyche: <img src={tycheImg} alt="Tyche" className="h-16 w-16 rounded-full object-cover" />,
   gaia: <img src={gaiaImg} alt="Gaia" className="h-16 w-16 rounded-full object-cover" />,
 }
 
@@ -63,11 +67,11 @@ const GoddessSelection: React.FC = () => {
         </div>
       )}
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="flex flex-wrap justify-center gap-6">
         {personas.map((persona) => (
           <article
             key={persona.id}
-            className="group relative h-full overflow-hidden rounded-3xl border border-transparent bg-white/80 p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
+            className="group relative h-full w-[calc(25%-1.5rem)] min-w-[220px] overflow-hidden rounded-3xl border border-white/20 bg-white/10 p-6 shadow-sm backdrop-blur-lg transition hover:-translate-y-1 hover:shadow-xl"
           >
             <div className="absolute inset-0 rounded-3xl border border-indigo-100 opacity-0 transition group-hover:opacity-100" />
             <div className="relative flex flex-col gap-4">
@@ -75,7 +79,9 @@ const GoddessSelection: React.FC = () => {
                 {iconMap[persona.id] ?? <SparkleIcon />}
               </div>
               <div>
-                <h3 className="text-xl font-semibold text-gray-900">{persona.display_name}</h3>
+                <h3 className="text-xl font-semibold" style={{ color: '#e5d39e' }}>
+                  {persona.display_name}
+                </h3>
                 <p className={clsx('text-sm font-medium', accentClass[persona.id] ?? 'text-indigo-500')}>{persona.tagline}</p>
               </div>
               <p className="text-sm leading-relaxed text-gray-600">

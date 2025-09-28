@@ -28,6 +28,23 @@ export interface ApiChatMessage {
   timestamp: string
 }
 
+export interface ApiChatHistory {
+  gaia: ApiChatMessage[]
+  athena: ApiChatMessage[]
+  aphrodite: ApiChatMessage[]
+  artemis: ApiChatMessage[]
+  tyche: ApiChatMessage[]
+}
+
+export const fetchChatHistory = async (
+  getToken: TokenFetcher,
+): Promise<ApiChatHistory> => {
+  return withAuth<ApiChatHistory>(
+    { url: '/api/chat/history', method: 'GET' },
+    getToken,
+  )
+}
+
 export interface ApiChatResponse {
   message: string
   goddess: string
@@ -35,6 +52,20 @@ export interface ApiChatResponse {
   citations: ApiCitation[]
   timestamp: string
   trace?: Record<string, unknown>
+}
+
+export async function confirmHandoff(tokenFetcher: TokenFetcher): Promise<ApiChatResponse> {
+  return withAuth(
+    { url: '/api/chat/handoff', method: 'POST', data: { action: 'confirm' } },
+    tokenFetcher
+  )
+}
+
+export async function declineHandoff(tokenFetcher: TokenFetcher): Promise<ApiChatResponse> {
+  return withAuth(
+    { url: '/api/chat/handoff', method: 'POST', data: { action: 'decline' } },
+    tokenFetcher
+  )
 }
 
 export interface GoddessPersona {
@@ -70,12 +101,6 @@ export const withAuth = async <T>(
   return response.data
 }
 
-export const fetchChatHistory = async (
-  getToken: TokenFetcher,
-): Promise<ApiChatMessage[]> => {
-  return withAuth<ApiChatMessage[]>({ url: '/api/chat/history', method: 'GET' }, getToken)
-}
-
 export const sendChatMessage = async (
   message: string,
   getToken: TokenFetcher,
@@ -91,5 +116,6 @@ export const fetchPersonas = async (): Promise<Record<string, GoddessPersona>> =
   const response = await apiClient.get<Record<string, GoddessPersona>>('/api/config/personas')
   return response.data
 }
+
 
 
