@@ -36,8 +36,8 @@ function App() {
     <Router>
       <div className="relative min-h-screen overflow-hidden bg-[#173b3b]">
         <BackgroundShapes />
-        <div className="relative z-10">
-          <main className="mx-auto w-full max-w-6xl px-6 py-10">
+        <div className="relative z-10 flex min-h-screen flex-col">
+          <main className="mx-auto w-full flex-1 max-w-6xl px-6 py-10">
             <Routes>
               <Route
                 path="/"
