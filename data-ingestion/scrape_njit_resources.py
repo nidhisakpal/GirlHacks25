@@ -379,7 +379,7 @@ asyncio.run(add_manual_resources([
     "url": "https://www.khanacademy.org/",
     "source": "Khan Academy",
     "description": "Free online courses, lessons, and practice in math, science, computing, economics, and more.",
-    "published": None,
+    "retrieved": None,
     "tags": ["academic help", "academic", "knowledge"],
     "text": "Educational videos and exercises across math, physics, chemistry, computer science, finance, and test prep."
   },
@@ -389,7 +389,7 @@ asyncio.run(add_manual_resources([
     "url": "https://www.geeksforgeeks.org/",
     "source": "GeeksforGeeks",
     "description": "Computer science portal with tutorials, coding problems, interview preparation, and courses.",
-    "published": None,
+    "retrieved": None,
     "tags": ["academic help", "coding", "knowledge", "career"],
     "text": "Articles, coding practice, and learning resources for programming, data structures, algorithms, and technical interview prep."
   },
@@ -399,7 +399,7 @@ asyncio.run(add_manual_resources([
     "url": "https://www.youtube.com/@alexlorenlee",
     "source": "YouTube",
     "description": "Math educator sharing clear explanations and problem-solving strategies.",
-    "published": None,
+    "retrieved": None,
     "tags": ["academic help", "math", "knowledge"],
     "text": "YouTube channel focused on mathematics with intuitive explanations and detailed walkthroughs of problem-solving methods."
   },
@@ -409,7 +409,7 @@ asyncio.run(add_manual_resources([
     "url": "https://www.youtube.com/@PhysicsNinja",
     "source": "YouTube",
     "description": "Physics tutorials covering mechanics, electromagnetism, and exam preparation.",
-    "published": None,
+    "retrieved": None,
     "tags": ["academic help", "physics", "knowledge"],
     "text": "YouTube channel with physics lectures, examples, and problem solving aimed at helping students succeed in physics courses."
   }
