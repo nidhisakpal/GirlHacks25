@@ -1,4 +1,4 @@
-﻿import React from 'react'
+﻿import React, { useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { ArrowRight } from 'lucide-react'
 import type { GoddessPersona } from '../services/api'
@@ -22,36 +22,66 @@ const customPersonas: GoddessPersona[] = [
     display_name: 'Athena',
     tagline: 'Academic strategist',
     persona: '',
+    description: 'Your wise guide for academic success, study strategies, and research support.',
   },
   {
     id: 'aphrodite',
     display_name: 'Aphrodite',
     tagline: 'Community and care',
     persona: '',
+    description: 'Your compassionate mentor for mental wellness, relationships, and self-care.',
   },
   {
     id: 'gaia',
     display_name: 'Gaia',
     tagline: 'Well-being guide',
     persona: '',
+    description: 'Your nurturing mother figure who connects you with the right specialist for any need.',
   },
   {
     id: 'artemis',
     display_name: 'Artemis',
     tagline: 'Career trailblazer',
     persona: '',
+    description: 'Your career champion for internships, job searches, and professional development.',
   },
   {
     id: 'tyche',
     display_name: 'Tyche',
     tagline: 'Opportunity scout',
     persona: '',
+    description: 'Your financial advisor for scholarships, grants, and funding opportunities.',
   },
 ]
+
+// Tooltip component
+interface TooltipProps {
+  content: string
+  children: React.ReactNode
+  isVisible: boolean
+}
+
+const Tooltip: React.FC<TooltipProps> = ({ content, children, isVisible }) => (
+  <div className="relative">
+    {children}
+    {isVisible && (
+      <div className="absolute top-full left-1/2 z-50 mt-2 -translate-x-1/2 transform">
+        <div className="rounded-lg bg-[#f5f5dc] px-2 py-1.5 text-xs text-gray-800 shadow-lg border border-gray-200">
+          <div className="max-w-sm w-48 text-center leading-relaxed">{content}</div>
+          {/* Arrow */}
+          <div className="absolute left-1/2 bottom-full -translate-x-1/2 transform">
+            <div className="border-l-4 border-r-4 border-b-4 border-transparent border-b-[#f5f5dc]"></div>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)
 
 const GoddessSelection: React.FC = () => {
   const { loginWithRedirect, isAuthenticated } = useAuth0()
   const personas = customPersonas
+  const [hoveredGoddess, setHoveredGoddess] = useState<string | null>(null)
 
   return (
     <section className="mx-auto flex max-w-5xl flex-col gap-5">
@@ -88,21 +118,28 @@ const GoddessSelection: React.FC = () => {
               : 'h-24 w-24'
 
           return (
-            <div
+            <Tooltip 
               key={persona.id}
-              className="flex w-32 flex-col items-center gap-3 text-center transition-transform duration-200 hover:scale-105"
+              content={persona.description || persona.tagline}
+              isVisible={hoveredGoddess === persona.id}
             >
-              <div className="flex h-32 w-32 items-center justify-center">
-                {icon ? (
-                  <img src={icon.src} alt={icon.alt} className={`rounded-full object-cover ${sizeClass}`} />
-                ) : (
-                  <SparkleIcon />
-                )}
+              <div
+                className="flex w-32 flex-col items-center gap-3 text-center transition-transform duration-200 hover:scale-105 cursor-pointer"
+                onMouseEnter={() => setHoveredGoddess(persona.id)}
+                onMouseLeave={() => setHoveredGoddess(null)}
+              >
+                <div className="flex h-32 w-32 items-center justify-center">
+                  {icon ? (
+                    <img src={icon.src} alt={icon.alt} className={`rounded-full object-cover ${sizeClass}`} />
+                  ) : (
+                    <SparkleIcon />
+                  )}
+                </div>
+                <span className="text-sm font-semibold uppercase tracking-[0.2em] text-[#f7ba2a]">
+                  {persona.display_name}
+                </span>
               </div>
-              <span className="text-sm font-semibold uppercase tracking-[0.2em] text-[#f7ba2a]">
-                {persona.display_name}
-              </span>
-            </div>
+            </Tooltip>
           )
         })}
       </div>

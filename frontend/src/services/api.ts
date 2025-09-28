@@ -73,6 +73,7 @@ export interface GoddessPersona {
   display_name: string
   persona: string
   tagline: string
+  description?: string
 }
 
 export type TokenFetcher = () => Promise<string>
@@ -103,14 +104,16 @@ export const withAuth = async <T>(
 
 export const sendChatMessage = async (
   message: string,
+  goddess: string,
   getToken: TokenFetcher,
 ): Promise<ApiChatResponse> => {
   return withAuth<ApiChatResponse>({
     url: '/api/chat',
     method: 'POST',
-    data: { message },
+    data: { message, goddess },   // <-- include active tab
   }, getToken)
 }
+
 
 export const fetchPersonas = async (): Promise<Record<string, GoddessPersona>> => {
   const response = await apiClient.get<Record<string, GoddessPersona>>('/api/config/personas')

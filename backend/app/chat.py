@@ -34,46 +34,91 @@ class GeminiClient:
 
 
 class IntentClassifier:
-    """Lightweight keyword classifier with extensibility for LLM refinement."""
+    """Gemini-powered intent classifier for better understanding of user needs."""
 
-    KEYWORDS = {
-        "academics": [
-            "class", "course", "study", "exam", "professor", "grade", "tutor", "research",
-        ],
-        "career": [
-            "internship", "job", "career", "resume", "interview", "handshake", "co-op", "salary",
-        ],
-        "events": [
-            "event", "workshop", "club", "meetup", "hackathon", "seminar", "career fair",
-        ],
-        "wellbeing": [
-            "stress", "wellness", "mental", "therapy", "health", "burnout", "sleep", "balance",
-        ],
-    }
-
-    DEFAULT_INTENT = "academics"
+    def __init__(self, gemini_client: Optional[GeminiClient] = None):
+        self._gemini = gemini_client or GeminiClient()
 
     async def predict(self, message: str) -> IntentPrediction:
+        """Use Gemini to classify user intent and suggest appropriate goddess."""
+        
+        prompt = f"""You are an AI assistant that helps route NJIT students to the right mentor based on their needs.
+
+Available mentors and their specialties:
+- **Athena**: Academic help (courses, study, research, grades, homework, projects, professors, tutoring)
+- **Aphrodite**: Mental health & wellness (stress, anxiety, depression, self-esteem, relationships, counseling, therapy)
+- **Artemis**: Career & professional development (jobs, internships, mentorships, networking, resumes, interviews)
+- **Tyche**: Financial aid & scholarships (funding, grants, tuition, financial planning, emergency aid)
+- **Gaia**: General guidance and initial routing
+
+Student message: "{message}"
+
+Analyze the student's message and determine:
+1. Primary intent (academics, wellbeing, career, scholarships, or general)
+2. Most appropriate goddess to help
+3. Confidence level (0.0-1.0)
+4. Brief reasoning
+
+Respond in this exact JSON format:
+{{
+    "intent": "academics|wellbeing|career|scholarships|general",
+    "suggested_goddess": "athena|aphrodite|artemis|tyche|gaia",
+    "confidence": 0.85,
+    "reasoning": "Brief explanation of why this classification was chosen"
+}}
+
+Consider:
+- Multiple topics in one message (choose the primary concern)
+- Emotional context and urgency
+- Specific vs general requests
+- Academic stress vs mental health concerns
+- Career questions vs academic questions"""
+
+        try:
+            response = await self._gemini.generate(prompt)
+            
+            # Parse JSON response
+            import json
+            import re
+            
+            # Extract JSON from response (in case there's extra text)
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                
+                return IntentPrediction(
+                    intent=result.get("intent", "general"),
+                    confidence=float(result.get("confidence", 0.7)),
+                    rationale=[result.get("reasoning", "Gemini classification")],
+                    suggested_goddess=result.get("suggested_goddess")
+                )
+            else:
+                # Fallback if JSON parsing fails
+                return IntentPrediction(
+                    intent="general",
+                    confidence=0.5,
+                    rationale=["Failed to parse Gemini response"]
+                )
+                
+        except Exception as e:
+            # Fallback to simple keyword matching if Gemini fails
+            return await self._fallback_classify(message)
+
+    async def _fallback_classify(self, message: str) -> IntentPrediction:
+        """Fallback keyword-based classification if Gemini fails."""
         text = message.lower()
-        best_intent = self.DEFAULT_INTENT
-        best_score = 0
-        best_hits: List[str] = []
-
-        for intent, keywords in self.KEYWORDS.items():
-            hits = [keyword for keyword in keywords if keyword in text]
-            score = len(hits)
-            if score > best_score:
-                best_intent = intent
-                best_score = score
-                best_hits = hits
-
-        if best_score == 0:
-            rationale = ["no strong keyword match; defaulting to academics"]
+        
+        # Simple keyword matching as fallback
+        if any(word in text for word in ["stress", "anxiety", "depression", "mental", "therapy", "counseling", "wellness"]):
+            return IntentPrediction(intent="wellbeing", confidence=0.7, rationale=["Fallback: mental health keywords"])
+        elif any(word in text for word in ["job", "career", "internship", "resume", "interview", "mentor"]):
+            return IntentPrediction(intent="career", confidence=0.7, rationale=["Fallback: career keywords"])
+        elif any(word in text for word in ["scholarship", "money", "funding", "tuition", "financial"]):
+            return IntentPrediction(intent="scholarships", confidence=0.7, rationale=["Fallback: financial keywords"])
+        elif any(word in text for word in ["study", "class", "exam", "homework", "grade", "professor"]):
+            return IntentPrediction(intent="academics", confidence=0.7, rationale=["Fallback: academic keywords"])
         else:
-            rationale = [f"matched '{kw}'" for kw in best_hits]
-
-        confidence = 0.35 + 0.15 * best_score
-        return IntentPrediction(intent=best_intent, confidence=min(confidence, 0.95), rationale=rationale)
+            return IntentPrediction(intent="general", confidence=0.5, rationale=["Fallback: no clear keywords"])
 
 
 class ChatService:
@@ -101,26 +146,33 @@ class ChatService:
 
         # Routing thresholds tuned for matcher scores
         self._auto_switch_threshold = 2.5  # raw matcher score needed to auto-switch
-        self._handoff_suggest_threshold = 1.6  # score that triggers a handoff suggestion
-        self._intent_suggestion_floor = 0.55  # classifier confidence that supports a suggestion
+        self._handoff_suggest_threshold = 0.5  # score that triggers a handoff suggestion (lowered for more suggestions)
+        self._intent_suggestion_floor = 0.0  # classifier confidence that supports a suggestion
 
         self._switching_cues = [
-            "switch",
-            "change",
-            "different",
-            "another",
-            "someone else",
-            "career help",
-            "job",
-            "internship",
-            "stress",
-            "mental health",
-            "burnout",
-            "wellness",
-            "money",
-            "funding",
-            "scholarship",
-            "grant",
+            # generic switching
+            "switch", "switch to", "change", "different", "someone else", "another", "handoff", "hand off",
+            "connect me", "transfer me", "talk to", "speak to",
+            # intents by topic
+            "career help", "job", "jobs", "internship", "co-op", "resume", "interview",
+            "stress", "mental health", "burnout", "wellness", "therapy", "counseling",
+            "money", "funding", "scholarship", "grant", "aid", "financial",
+            "club", "event", "workshop", "seminar", "hackathon",
+            # goddess names
+            "gaia", "athena", "aphrodite", "artemis", "tyche"
+        ]
+
+        # NEW: explicit name/verb detection (e.g., "switch to Athena", "Athena please")
+        self._name_aliases = {
+            "gaia": ["gaia"],
+            "athena": ["athena"],
+            "aphrodite": ["aphrodite"],
+            "artemis": ["artemis"],
+            "tyche": ["tyche"],
+        }
+        self._switch_verbs = [
+            "switch", "change", "talk to", "connect", "handoff",
+            "transfer", "route", "speak to", "chat with"
         ]
 
         personas = self._matcher.personas()
@@ -134,22 +186,76 @@ class ChatService:
             },
         }
 
-    async def get_response(self, user_id: str, message: str, db) -> ChatResponse:
+    async def get_response(self, user_id: str, message: str, db, preferred_goddess: Optional[str] = None) -> ChatResponse:
         user = await get_user(db, user_id)
         if not user:
             raise ValueError("User profile not found")
 
-        current_goddess = user.selected_goddess or "gaia"
-        
-        # Handle pending confirmations first
-        if user.handoff_stage == "awaiting_confirmation":
-            return await self._handle_confirmation_response(user_id, message, db, user)
+        # Use the tab the user is typing under, if provided; else fall back
+        current_goddess = (preferred_goddess or user.selected_goddess or "gaia").lower()
 
-        # Classify intent and find best match for routing
+        # If the user clicked into a different tab, remember it so subsequent messages align
+        if preferred_goddess and preferred_goddess != user.selected_goddess:
+            await update_user_goddess(
+                db, user_id,
+                goddess=current_goddess,
+                quiz_results=user.quiz_results or {},
+                suggested=None, handoff_stage=None, routing_state=None
+            )
+
+        # Clear any pending handoff if user sends a new message
+        # This ensures we don't get stuck in text-based confirmation flows
+        if user.handoff_stage == "awaiting_confirmation":
+            await update_user_goddess(
+                db, user_id, current_goddess,
+                quiz_results=user.quiz_results or {},
+                suggested=None, handoff_stage=None, routing_state=None
+            )
+            # Continue processing the new message normally
+
+        # Classify intent using Gemini
         intent_prediction = await self._intent_classifier.predict(message)
-        match_result = self._matcher.match_for_message(message, intent_prediction.intent)
+
+        # Try explicit user choice first (e.g., "switch to Athena", "Athena please")
+        explicit = self._parse_explicit_goddess(message)
+        if explicit and explicit != current_goddess:
+            match_result = MatchResult(
+                goddess=explicit,
+                # set at suggest threshold so UX always shows the inline confirm card
+                confidence=self._handoff_suggest_threshold,
+                rationale=[f"user explicitly asked for {explicit}"],
+            )
+            intent_conf = max(intent_prediction.confidence, 0.9)
+        else:
+            # Use Gemini's suggested goddess from intent classification
+            suggested_goddess = intent_prediction.suggested_goddess
+            if not suggested_goddess:
+                # Fallback to matcher if Gemini didn't suggest a goddess
+                match_result = self._matcher.match_for_message(message, intent_prediction.intent)
+            else:
+                match_result = MatchResult(
+                    goddess=suggested_goddess,
+                    confidence=intent_prediction.confidence,
+                    rationale=intent_prediction.rationale,
+                )
+            intent_conf = intent_prediction.confidence
+
         decision = self._decide_routing(
-            current_goddess, match_result, intent_prediction.confidence, message
+            current_goddess, match_result, intent_conf, message
+        )
+
+        # (Optional but handy) log routing decisions while tuning
+        LOGGER.info(
+            "router_decision",
+            extra={
+                "user": user_id,
+                "current": current_goddess,
+                "suggested": match_result.goddess,
+                "score": match_result.confidence,
+                "intent": intent_prediction.intent,
+                "intent_conf": intent_conf,
+                "mode": decision["mode"],
+            },
         )
         target_goddess = decision["target"]
         suggested_goddess = decision.get("suggested")
@@ -196,14 +302,8 @@ class ChatService:
             response_intent = intent_prediction.intent
 
         update_kwargs = {}
-        if decision["mode"] == "switch":
-            update_kwargs = {
-                "goddess": target_goddess,
-                "suggested": None,
-                "handoff_stage": None,
-                "routing_state": None,
-            }
-        elif decision["mode"] == "suggest" and suggested_goddess:
+        # NO AUTO-SWITCHING: All switches must go through confirmation
+        if decision["mode"] == "suggest" and suggested_goddess:
             update_kwargs = {
                 "goddess": target_goddess,
                 "suggested": suggested_goddess,
@@ -243,7 +343,7 @@ class ChatService:
             "mode": decision["mode"],
             "previous_goddess": current_goddess,
             "current_goddess": target_goddess,
-            "switched": decision["mode"] == "switch",
+            "switched": False,  # NO AUTO-SWITCHING: Always False
         }
         if decision["mode"] == "suggest" and suggested_goddess:
             trace.update(
@@ -262,15 +362,24 @@ class ChatService:
             trace=trace,
         )
 
-    def _decide_routing(
-        self,
-        current: str,
-        match_result: MatchResult,
-        intent_confidence: float,
-        message: str,
-    ) -> dict:
-        """Choose whether to stay with the current goddess or request a handoff."""
+    def _parse_explicit_goddess(self, text: str) -> Optional[str]:
+        """Return a goddess key if the user explicitly asked for one."""
+        t = (text or "").lower().strip()
+        if not t:
+            return None
+        for g, aliases in self._name_aliases.items():
+            name_hit = any(a in t for a in aliases)
+            if not name_hit:
+                continue
+            # Strong signals like "switch to athena", "connect me to aphrodite"
+            if any(v in t for v in self._switch_verbs):
+                return g
+            # Light signals like "athena please", "athena?"
+            if t == g or t.startswith(g + " ") or t.endswith(" please") or t.endswith("?"):
+                return g
+        return None
 
+    def _decide_routing(self, current: str, match_result: MatchResult, intent_confidence: float, message: str) -> dict:
         decision = {"mode": "stay", "target": current, "suggested": None}
         suggested = match_result.goddess
         if not suggested or suggested == current:
@@ -281,50 +390,19 @@ class ChatService:
         explicit_switch = any(cue in message_lower for cue in self._switching_cues)
         has_intent_signal = intent_confidence >= self._intent_suggestion_floor
 
-        should_consider = (
-            score >= self._handoff_suggest_threshold
-            or explicit_switch
-            or has_intent_signal
-        )
-        if not should_consider:
+        # Explicit user request for a switch should also require confirmation
+        if explicit_switch and score >= self._handoff_suggest_threshold:
+            decision.update({"mode": "suggest", "suggested": suggested})
             return decision
 
-        if score >= self._auto_switch_threshold or (
-            explicit_switch and score >= self._handoff_suggest_threshold
-        ):
-            decision.update({"mode": "switch", "target": suggested})
+        # Otherwise, propose a handoff (show the inline confirm card) if confident enough
+        if (score >= self._handoff_suggest_threshold) or has_intent_signal:
+            decision.update({"mode": "suggest", "suggested": suggested})
             return decision
 
-        decision.update({"mode": "suggest", "suggested": suggested})
         return decision
 
-    async def _handle_confirmation_response(self, user_id: str, message: str, db, user) -> ChatResponse:
-        """Handle yes/no responses to handoff suggestions."""
-        message_lower = message.lower().strip()
 
-        # Yes responses
-        if any(word in message_lower for word in ["yes", "y", "ok", "sure", "please", "go ahead"]):
-            return await self.confirm_handoff(user_id, db)
-        
-        # No responses  
-        if any(word in message_lower for word in ["no", "n", "not", "stay", "keep"]):
-            return await self.decline_handoff(user_id, db)
-        
-        # Unclear response - ask for clarification
-        current = user.selected_goddess or "gaia"
-        suggested_name = self._persona_lookup.get(user.suggested_goddess, {}).get('display_name', 'specialist')
-        
-        return ChatResponse(
-            message=f"Would you like me to connect you with {suggested_name}? Please say 'yes' or 'no'.",
-            goddess=current,
-            intent="handoff_clarification",
-            citations=[],
-            trace={
-                "stage": "awaiting_confirmation",
-                "needs_clarification": True,
-                "suggested": user.suggested_goddess,
-            }
-        )
 
     def _format_citation_lines(self, citations: List[Citation]) -> List[str]:
         lines = []
@@ -402,11 +480,11 @@ class ChatService:
 
         prompt = (
             f"{current_prompt}\n\n"
-            "You mentor an NJIT student. You believe another goddess is better suited to assist.\n"
+            f"You are {current_name}. A student has asked for help that {suggested_name} is better suited to handle.\n"
             "Write under 150 words, stay warm, and keep a mentoring tone.\n"
-            f"Explain why {suggested_name} ({suggested_tagline}) fits best, citing resources with [#] if you reference them.\n"
+            f"Explain that {suggested_name} ({suggested_tagline}) would be the best person to help with this, citing resources with [#] if you reference them.\n"
             f"Reasoning: {handoff_reason}.\n"
-            "Ask clearly if the student wants to be connected (yes/no).\n"
+            f"Suggest connecting the student to {suggested_name} for better assistance.\n"
             "If resources are missing, say you'll gather more.\n\n"
             f"Resources:\n{chr(10).join(citation_lines)}\n\n"
             f"Conversation so far:\n{chr(10).join(history_lines)}\n\n"
@@ -430,52 +508,23 @@ class ChatService:
         previous = user.selected_goddess or "gaia"
         new_goddess = user.suggested_goddess
         routing_state = getattr(user, "routing_state", None) or {}
-        intent_hint = routing_state.get("intent")
-        message_text = routing_state.get("message")
         rationale = routing_state.get("rationale") or []
 
-        history = await get_chat_history(db, user_id)
-
-        if not message_text:
-            previous_thread = history.messages.get(previous, [])
-            for msg in reversed(previous_thread):
-                if msg.role == "user":
-                    message_text = msg.content
-                    break
-        if not message_text:
-            message_text = "I need help following up on my last question."
-
-        citations_payload = routing_state.get("citations") or []
-        citations: List[Citation] = []
-        try:
-            citations = [Citation(**item) for item in citations_payload]
-        except Exception:
-            citations = []
-
-        if not citations:
-            citations = await self._search.search(message_text, intent_hint)
-
+        # Update user's selected goddess and clear handoff state
         await update_user_goddess(
             db, user_id, new_goddess,
             quiz_results=user.quiz_results or {},
             suggested=None, handoff_stage=None, routing_state=None
         )
 
-        thread_messages = history.messages.get(new_goddess, [])
-        user_entry = await add_chat_message(
-            db, user_id, role="user", content=message_text, goddess=new_goddess
-        )
-
-        recent_messages = thread_messages[-6:] + [user_entry]
-        response_text = await self._generate_response(
-            new_goddess, recent_messages, message_text, citations
-        )
-        response_intent = intent_hint or "handoff_confirmed"
+        # Generate a welcome message from the new goddess without processing old message
+        response_text = await self._generate_handoff_welcome(new_goddess)
+        response_intent = "handoff_confirmed"
 
         await append_intents(db, user_id, [response_intent])
         await add_chat_message(
             db, user_id, role="assistant", content=response_text,
-            goddess=new_goddess, intent=response_intent, citations=citations
+            goddess=new_goddess, intent=response_intent, citations=[]
         )
 
         trace = {
@@ -483,7 +532,7 @@ class ChatService:
             "current_goddess": new_goddess,
             "previous_goddess": previous,
             "switched": True,
-            "mode": "switch",
+            "mode": "confirmed_handoff",
             "confirmed": True,
         }
         if rationale:
@@ -493,7 +542,7 @@ class ChatService:
             message=response_text,
             goddess=new_goddess,
             intent=response_intent,
-            citations=citations,
+            citations=[],
             trace=trace,
         )
 

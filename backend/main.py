@@ -110,8 +110,14 @@ async def chat_endpoint(
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: no user ID")
 
-    response = await chat_service.get_response(user_id, request.message, db)
+    response = await chat_service.get_response(
+        user_id,
+        request.message,
+        db,
+        preferred_goddess=request.goddess,  # <-- add this
+    )
     return response
+
 
 
 @app.post("/api/chat/handoff", response_model=ChatResponse)

@@ -51,8 +51,7 @@ interface ChatMessage extends ApiChatMessage {
   intent?: string
   goddess?: GoddessKey
   timestamp: string
-  // optional metadata carrier
-  suggested?: GoddessKey     // <-- NEW (for rendering the inline card)
+  suggested?: GoddessKey
   handoffReason?: string[]
 }
 
@@ -135,11 +134,11 @@ const ChatInterface: React.FC = () => {
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingRecommendation, setPendingRecommendation] = useState<GoddessKey | null>(null)
+  const [pendingTabSwitch, setPendingTabSwitch] = useState<GoddessKey | null>(null)
 
-  // NEW: action state for the inline card
   const [isHandoffActioning, setIsHandoffActioning] = useState(false)
-
   const isHandoffPending = !!pendingRecommendation
+  const isTabSwitchPending = !!pendingTabSwitch
 
   const tokenFetcherRef = useRef<TokenFetcher | null>(null)
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
@@ -200,7 +199,7 @@ const ChatInterface: React.FC = () => {
     const trimmed = (overrideMessage ?? inputText).trim()
     if (!trimmed || isSending) return
     if (!isAuthenticated) return
-    if (isHandoffPending) return // freeze until resolved
+    if (isHandoffPending || isTabSwitchPending) return
 
     const sourceTab = activeTab
     setError(null)
@@ -218,18 +217,24 @@ const ChatInterface: React.FC = () => {
       ...prev,
       [sourceTab]: [...prev[sourceTab], userMessage],
     }))
-    if (!overrideMessage) setInputText('')
+    if (!overrideMessage)     setInputText('')
     setIsSending(true)
     setPendingRecommendation(null)
+    setPendingTabSwitch(null)
 
     try {
       if (!tokenFetcherRef.current) {
         tokenFetcherRef.current = createTokenFetcher(getAccessTokenSilently)
       }
 
-      const response: ApiChatResponse = await sendChatMessage(trimmed, tokenFetcherRef.current)
+      const response: ApiChatResponse = await sendChatMessage(
+      trimmed,
+      sourceTab,                    // <-- send current tab
+      tokenFetcherRef.current!,
+      )
 
-      // Awaiting confirmation -> inject a special assistant bubble with inline UI
+
+      // Awaiting confirmation -> special assistant bubble with inline UI
       if (response.trace?.stage === 'awaiting_confirmation' && response.trace?.suggested) {
         const suggested = response.trace.suggested as GoddessKey
         setPendingRecommendation(suggested)
@@ -245,7 +250,7 @@ const ChatInterface: React.FC = () => {
           intent: response.intent ?? 'handoff_request',
           timestamp: response.timestamp ?? new Date().toISOString(),
           citations: response.citations ?? [],
-          suggested, // carry to renderer
+          suggested,
           handoffReason,
         }
         setMessagesByGoddess(prev => ({
@@ -284,11 +289,12 @@ const ChatInterface: React.FC = () => {
         return next
       })
 
-      if (response.goddess) {
-        const key = response.goddess as GoddessKey
-        setActiveTab(key)
-        setCurrentGoddess(key)
-      }
+      // NO AUTO-SWITCHING: Only switch on explicit user confirmation
+      // if (response.goddess) {
+      //   const key = response.goddess as GoddessKey
+      //   setActiveTab(key)
+      //   setCurrentGoddess(key)
+      // }
     } catch (err) {
       console.error('Error sending chat message', err)
       setError('Gaia is taking a quick pause. Try again in a moment.')
@@ -309,7 +315,7 @@ const ChatInterface: React.FC = () => {
     }
   }
 
-  // NEW: inline GUI actions (no chat message added)
+  // Inline handoff actions
   const handleHandoffAction = async (action: 'confirm' | 'decline') => {
     if (!tokenFetcherRef.current) return
     if (!pendingRecommendation) return
@@ -318,8 +324,8 @@ const ChatInterface: React.FC = () => {
       const api = action === 'confirm' ? confirmHandoff : declineHandoff
       const response = await api(tokenFetcherRef.current)
 
-      // Clear pending and render assistant answer we got back
       setPendingRecommendation(null)
+      setPendingTabSwitch(null)
 
       const assistantMessage: ChatMessage = {
         id: `assistant-${response.timestamp ?? Date.now()}`,
@@ -335,7 +341,6 @@ const ChatInterface: React.FC = () => {
         [assistantMessage.goddess]: [...prev[assistantMessage.goddess], assistantMessage],
       }))
 
-      // On confirm, the backend returns the new goddess; switch tabs
       if (action === 'confirm' && response.goddess) {
         const key = response.goddess as GoddessKey
         setActiveTab(key)
@@ -347,6 +352,15 @@ const ChatInterface: React.FC = () => {
     } finally {
       setIsHandoffActioning(false)
     }
+  }
+
+  // Tab switch confirmation
+  const handleTabSwitchAction = (action: 'confirm' | 'decline') => {
+    if (action === 'confirm' && pendingTabSwitch) {
+      setActiveTab(pendingTabSwitch)
+      setCurrentGoddess(pendingTabSwitch)
+    }
+    setPendingTabSwitch(null)
   }
 
   const handleReset = async () => {
@@ -363,6 +377,7 @@ const ChatInterface: React.FC = () => {
         tyche: [],
       })
       setPendingRecommendation(null)
+      setPendingTabSwitch(null)
     } catch (error) {
       console.error('Unable to reset goddess selection', error)
     }
@@ -384,16 +399,16 @@ const ChatInterface: React.FC = () => {
   const theme = getTheme(currentGoddess)
 
   return (
-    <section className="flex flex-col gap-6 lg:flex-row lg:items-start">
-      <aside className="mt-4 flex justify-center lg:mt-0 lg:sticky lg:top-16 lg:max-w-sm lg:flex-shrink-0">
+    <section className="flex h-full min-h-0 flex-col gap-6 lg:flex-row lg:items-start">
+      <aside className="flex items-center justify-center px-2 sm:px-0 lg:sticky lg:top-16 lg:w-[420px] xl:w-[520px] lg:flex-shrink-0 lg:items-start">
         <img
           src={goddessFeatureArt[currentGoddess]}
           alt={`${persona.display_name} artwork`}
-          className="h-auto max-h-[26rem] w-full object-contain"
+          className="h-auto w-full max-h-[min(78vh,36rem)] object-contain"
         />
       </aside>
 
-      <div className="flex flex-1 flex-col gap-6">
+      <div className="flex flex-1 min-h-0 flex-col gap-6">
         <header className="rounded-2xl border border-indigo-100 bg-white/70 p-6 shadow-sm backdrop-blur">
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-4">
@@ -425,13 +440,18 @@ const ChatInterface: React.FC = () => {
           </div>
         </header>
 
-        <div className="flex min-h-[520px] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-[#507f6b] shadow-sm backdrop-blur lg:max-h-[70vh]">
+        {/* CHAT CARD */}
+        <div className="flex flex-1 min-h-[520px] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-[#507f6b] shadow-sm backdrop-blur lg:max-h-[70vh] lg:min-h-0">
           {/* Goddess tabs */}
-          <div className="flex items-center gap-2 border-b border-gray-100 px-6 py-3">
+          <div className="flex flex-wrap items-center gap-2 gap-y-2 border-b border-gray-100 px-6 py-3">
             {goddessTabs.map(tab => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => {
+                  if (tab !== activeTab) {
+                    setPendingTabSwitch(tab)
+                  }
+                }}
                 className={clsx(
                   'rounded-full px-3 py-1 text-xs font-medium transition',
                   tab === activeTab
@@ -444,9 +464,11 @@ const ChatInterface: React.FC = () => {
             ))}
 
             {isSending && (
-              <div className="ml-auto flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Composing a grounded reply...
+              <div className="flex basis-full justify-end sm:ml-auto sm:basis-auto">
+                <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Composing a grounded reply...
+                </div>
               </div>
             )}
           </div>
@@ -459,7 +481,8 @@ const ChatInterface: React.FC = () => {
             </div>
           )}
 
-          <div className="flex-1 space-y-4 overflow-y-auto px-6 py-6">
+          {/* Messages (scroll owner) */}
+          <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-6 py-6">
             {isHydrating && (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-gray-500">
                 <Loader2 className="h-8 w-8 animate-spin" />
@@ -482,28 +505,22 @@ const ChatInterface: React.FC = () => {
               const themedKey = (message.goddess ?? currentGoddess) as GoddessKey
               const activeTheme = getTheme(themedKey)
               const ts = message.timestamp ? new Date(message.timestamp) : new Date()
-
               const isHandoffCard = isAssistant && message.intent === 'handoff_request'
 
               return (
-              <article
-                key={message.id}
-                className={clsx(
-                  'rounded-2xl p-4 shadow-sm backdrop-blur',
-                  isAssistant ? 'bg-[#ece5cc]' : 'bg-[#cdb476]',
-                  {
-                    'ml-auto max-w-[78%]': !isAssistant,
-                    'mr-auto max-w-[85%]': isAssistant,
-                  },
-                )}
-              >
+                <article
+                  key={message.id}
+                  className={clsx(
+                    'rounded-2xl p-4 shadow-sm backdrop-blur',
+                    isAssistant ? 'bg-[#ece5cc]' : 'bg-[#cdb476]',
+                    { 'ml-auto max-w-[78%]': !isAssistant, 'mr-auto max-w-[85%]': isAssistant },
+                  )}
+                >
                   <div className="flex items-start gap-3">
                     <div
                       className={clsx(
                         'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full',
-                        isAssistant
-                          ? 'overflow-hidden border border-white/60 bg-white p-0.5 shadow-sm'
-                          : 'bg-gray-400 text-white',
+                        isAssistant ? 'overflow-hidden border border-white/60 bg-white p-0.5 shadow-sm' : 'bg-gray-400 text-white',
                       )}
                     >
                       {isAssistant ? (
@@ -516,14 +533,15 @@ const ChatInterface: React.FC = () => {
                         <User className="h-5 w-5" />
                       )}
                     </div>
+
                     <div className="flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-semibold text-gray-900">
                           {isAssistant ? personas[themedKey]?.display_name ?? 'Gaia' : 'You'}
                         </span>
-                      <span className={clsx('text-xs', isAssistant ? 'text-gray-400' : 'text-[#ece5cc]')}>
-                        {timeFormatter.format(ts)}
-                      </span>
+                        <span className={clsx('text-xs', isAssistant ? 'text-gray-400' : 'text-[#ece5cc]')}>
+                          {timeFormatter.format(ts)}
+                        </span>
                         {isAssistant && message.intent && (
                           <span className={clsx('rounded-full px-2 py-0.5 text-xs font-medium', activeTheme.badge, 'bg-[#173b3b] text-white')}>
                             {message.intent}
@@ -531,31 +549,23 @@ const ChatInterface: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Message text */}
                       {message.content && (
                         <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
                           {message.content}
                         </p>
                       )}
 
-                      {/* Inline handoff GUI */}
                       {isHandoffCard && message.suggested && isHandoffPending && (
                         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
                           <p className="text-sm text-amber-800">
                             {personas[message.suggested]?.display_name ?? message.suggested} can take it from here. Connect you?
                           </p>
-                          {message.handoffReason && message.handoffReason.length > 0 && (
-                            <p className="mt-1 text-xs text-amber-700">
-                              Why: {message.handoffReason.join('; ')}
-                            </p>
-                          )}
+                          {message.handoffReason?.length ? (
+                            <p className="mt-1 text-xs text-amber-700">Why: {message.handoffReason.join('; ')}</p>
+                          ) : null}
                           <div className="mt-2 flex gap-2">
                             <button
-                              className={clsx(
-                                'rounded-full px-3 py-1 text-xs font-semibold text-white',
-                                'bg-amber-600 hover:bg-amber-700 disabled:opacity-60',
-                                isHandoffActioning && 'cursor-wait'
-                              )}
+                              className={clsx('rounded-full px-3 py-1 text-xs font-semibold text-white', 'bg-amber-600 hover:bg-amber-700 disabled:opacity-60', isHandoffActioning && 'cursor-wait')}
                               disabled={isHandoffActioning}
                               onClick={() => void handleHandoffAction('confirm')}
                             >
@@ -572,7 +582,29 @@ const ChatInterface: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Citations */}
+                      {/* Tab switch confirmation */}
+                      {isTabSwitchPending && pendingTabSwitch && (
+                        <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+                          <p className="text-sm text-blue-800">
+                            Switch to {personas[pendingTabSwitch]?.display_name ?? formatGoddessLabel(pendingTabSwitch)}?
+                          </p>
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+                              onClick={() => handleTabSwitchAction('confirm')}
+                            >
+                              Yes, switch
+                            </button>
+                            <button
+                              className="rounded-full border border-blue-400 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                              onClick={() => handleTabSwitchAction('decline')}
+                            >
+                              Stay here
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {isAssistant && message.citations?.length > 0 && (
                         <div className="space-y-1">
                           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Sources</p>
@@ -598,10 +630,11 @@ const ChatInterface: React.FC = () => {
               )
             })}
 
-            <div ref={endOfMessagesRef} />
+            <div ref={endOfMessagesRef} className="h-px" />
           </div>
 
-          <div className="border-t border-gray-100 bg-gray-50/80 px-6 py-4">
+          {/* Footer INSIDE chat card */}
+          <div className="border-t border-gray-100 bg-gray-50/80 px-6 py-4 flex-none">
             <div className="flex gap-3">
               <textarea
                 value={inputText}
@@ -609,12 +642,12 @@ const ChatInterface: React.FC = () => {
                 onKeyDown={handleKeyPress}
                 placeholder="Ask Gaia for academics, events, or well-being support..."
                 className="min-h-[72px] flex-1 resize-none rounded-xl border border-[#6b9784] bg-white px-4 py-3 text-sm text-gray-800 shadow-inner focus:border-[#6b9784] focus:outline-none focus:ring-2 focus:ring-[#6b9784]/50"
-                disabled={isSending || isHandoffPending}
+                disabled={isSending || isHandoffPending || isTabSwitchPending}
               />
               <button
                 type="button"
                 onClick={() => void handleSend()}
-                disabled={!inputText.trim() || isSending || isHandoffPending}
+                disabled={!inputText.trim() || isSending || isHandoffPending || isTabSwitchPending}
                 className={clsx(
                   'flex h-[72px] w-16 items-center justify-center rounded-xl bg-[#6b9784] text-white transition',
                   isSending ? 'opacity-60' : 'hover:opacity-90',

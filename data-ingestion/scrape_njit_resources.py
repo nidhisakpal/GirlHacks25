@@ -2,27 +2,29 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Dict, Any
-<<<<<<< HEAD
-from urllib.parse import urljoin, urlparse, urlunparse
-import google.generativeai as genai
-=======
-from urllib.parse import urljoin, urlparse, urlunparse, parse_qs
+from typing import Any, Dict, Iterable, List, Optional
+from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
 
->>>>>>> 5567c5d887964a74ee508c622a23a564fa2fe9c9
+import google.generativeai as genai
 import httpx
 from bs4 import BeautifulSoup
 from robotexclusionrulesparser import RobotExclusionRulesParser
 
-LOGGER = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
-genai.configure(api_key="$GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+else:
+    LOGGER.warning("GEMINI_API_KEY not set; Gemini tagging disabled.")
+
 
 # ---------------------------------------------------------------------
 # If you already have app.models.Citation, delete this dataclass and import yours.
@@ -59,7 +61,7 @@ class RobotsCache:
                     if r.status_code == 200 and r.text:
                         parser.parse(r.text)
                     else:
-                        # No robots or not accessible → default allow
+                        # No robots or not accessible -> default allow
                         parser = None
                 except Exception:
                     parser = None
@@ -101,23 +103,32 @@ class WebScraper:
             self._host_locks[host] = asyncio.Lock()
         return self._host_locks[host]
 
-    async def gemini_generate_api(text: str, max_tags: int = 10) -> list[str]:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        
-        prompt = f"""
-            Analyze the following text and return up to {max_tags} short, relevant tags.
-            Tags should be single words or short phrases, useful for categorizing the content.
-            
-            Text:
-            {text[:4000]}  # truncate to avoid token limits
-        """
+    @staticmethod
+    async def _generate_tags(text: str, max_tags: int = 10) -> List[str]:
+        if not GEMINI_API_KEY:
+            return []
 
-        response = await model.generate_content_async(prompt)
-        raw = response.text.strip()
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            prompt = (
+                "Analyze the following text and return up to "
+                f"{max_tags} short, relevant tags. "
+                "Tags should be single words or short phrases, useful for categorizing the content.\n\n"
+                "Text:\n"
+                f"{text[:4000]}"
+            )
+            response = await model.generate_content_async(prompt)
+            raw = getattr(response, "text", "") or ""
+        except Exception as exc:
+            LOGGER.debug("Gemini tag generation failed: %s", exc)
+            return []
 
-        # Expect comma or newline separated tags → normalize
         tags = [t.strip().lower() for t in re.split(r"[,\\n]", raw) if t.strip()]
-        return list(dict.fromkeys(tags))  # dedupe, preserve order
+        seen: List[str] = []
+        for tag in tags:
+            if tag not in seen:
+                seen.append(tag)
+        return seen
 
     async def _polite_wait(self, host: str) -> None:
         lock = self._host_lock(host)
@@ -179,23 +190,25 @@ class WebScraper:
         return {"title": title, "description": desc, "retrieved": date, "canonical": canon}
 
     @staticmethod
-    @staticmethod
-    def _extract_main_text(soup: BeautifulSoup, preferred_div_id: str = "block-system-main") -> str:
-  
-     container = soup.find(id=preferred_div_id)
-     if container is None:
-         container = soup.body
+    def _extract_main_text(
+        soup: BeautifulSoup,
+        preferred_div_id: Optional[str] = "block-system-main",
+    ) -> str:
+        container = soup.find(id=preferred_div_id) if preferred_div_id else None
+        if container is None:
+            container = soup.body
 
-     chunks = []
-     if container:
-         for el in container.find_all(["p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "span"]):
-            txt = el.get_text(" ", strip=True)
-            if txt:
-                chunks.append(txt)
+        chunks: List[str] = []
+        if container:
+            for el in container.find_all(["p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "span"]):
+                txt = el.get_text(" ", strip=True)
+                if txt:
+                    chunks.append(txt)
 
-     text = " ".join(chunks)
-    # collapse whitespace
-     return re.sub(r"\s+", " ", text).strip()
+        text = " ".join(chunks)
+        return re.sub(r"\s+", " ", text).strip()
+
+
 
 
     async def fetch(self, client: httpx.AsyncClient, url: str) -> Optional[Dict[str, Any]]:
@@ -237,30 +250,30 @@ class WebScraper:
 
         final_url = meta.get("canonical") or str(r.url)
 
-        tags = []
-        try:
-            ai_tags = await gemini_generate_tags(text)
+        tags: List[str] = []
+        ai_tags = await self._generate_tags(text)
+        if ai_tags:
             tags.extend(ai_tags)
-        except:
-            keywords = ['research', 'academic', 'professional', 'academia', 'job', 'company visit',
-                    'study abroad', 'international', 'travel', 'scholarship', 'financial', 'finance',
-                    'grant', 'funding', 'health', 'wellness', 'mental health', 'well being', 'study',
-                    'education', 'career', 'tutorial', 'workshop', 'seminar', 'conference', 'lab', 
-                    'data science', 'science', 'computer', 'internship', 'career fair', 'resume', 
-                    'hiring', 'employer', 'new grad', 'workplace', 'growth', 'career growth', 
-                    'cover letter', 'linkedin', 'networking', 'interview', 'technical', 'mock interview',
-                    'mentor', 'immigration', 'global', 'culture', 'immersion', 'fellowship', 'visa',
-                    'skills', 'tuition', 'loan', 'budget', 'sponsorship', 'fundraise', 'fundraising',
-                    'counseling', 'therapy', 'stress', 'anxiety', 'depression', 'support group',
-                    'peer support', 'balance', 'self-care', 'nutrition', 'fitness', 'sports', 'recreation',
-                    'student club', 'community', 'belonging', 'housing', 'residence', 'peer', 'resident',
-                    'coding', 'programming', 'software', 'engineering', 'machine learning',
-                    'data science', 'cybersecurity', 'technology', 'innovation', 'design', 'productivity',
-                    'online learning', 'mantra health', 'uwill'
-                    ]
 
+        if not tags:
+            keywords = ['research', 'academic', 'professional', 'academia', 'job', 'company visit',
+                        'study abroad', 'international', 'travel', 'scholarship', 'financial', 'finance',
+                        'grant', 'funding', 'health', 'wellness', 'mental health', 'well being', 'study',
+                        'education', 'career', 'tutorial', 'workshop', 'seminar', 'conference', 'lab',
+                        'data science', 'science', 'computer', 'internship', 'career fair', 'resume',
+                        'hiring', 'employer', 'new grad', 'workplace', 'growth', 'career growth',
+                        'cover letter', 'linkedin', 'networking', 'interview', 'technical', 'mock interview',
+                        'mentor', 'immigration', 'global', 'culture', 'immersion', 'fellowship', 'visa',
+                        'skills', 'tuition', 'loan', 'budget', 'sponsorship', 'fundraise', 'fundraising',
+                        'counseling', 'therapy', 'stress', 'anxiety', 'depression', 'support group',
+                        'peer support', 'balance', 'self-care', 'nutrition', 'fitness', 'sports', 'recreation',
+                        'student club', 'community', 'belonging', 'housing', 'residence', 'peer', 'resident',
+                        'coding', 'programming', 'software', 'engineering', 'machine learning',
+                        'data science', 'cybersecurity', 'technology', 'innovation', 'design', 'productivity',
+                        'online learning', 'mantra health', 'uwill']
+            lower_text = text.lower()
             for keyword in keywords:
-                if keyword in text:
+                if keyword in lower_text:
                     tags.append(keyword)
     
         return {
@@ -572,49 +585,45 @@ class SearchService:
 # ---------------------------------------------------------------------
 # Example usage (run as a script)
 # ---------------------------------------------------------------------
-if __name__ == "__main__":
-    async def main():
-        svc = SearchService()
-        # 1) Build/refresh corpus from a starter set of pages
-        seed_urls = [
-            "https://www.njit.edu/",
-            "https://njit.campuslabs.com/engage/events",
-            "https://www.njit.edu/financialaid/merit-based-scholarships",
-            "https://www.njit.edu/financialaid/scholarship-universe-njit",
-            "https://www.njit.edu/research/",
-            "https://research.njit.edu/bioscience-and-bioengineering",
-            "https://research.njit.edu/data-science-and-management",
-            "https://research.njit.edu/environment-and-sustainability",
-            "https://research.njit.edu/robotics-and-machine-intelligence",
-            "https://research.njit.edu/uri/",
-            "https://www.njit.edu/counseling/services",
-            "https://www.njit.edu/counseling/mantra-health-mental-health-wellness",
-            "https://www.njit.edu/counseling/uwill-mental-health-and-wellness-service",
-            "https://app.uwill.com/login",
-            "https://hub.mantrahealth.com/login?utm_content=70&utm_source=schoolsitereferral&utm_medium=digital&utm_campaign=schoolsitereferral&to=%2F%3Futm_content%3D70%26utm_source%3Dschoolsitereferral%26utm_medium%3Ddigital%26utm_campaign%3Dschoolsitereferral",
-            "https://www.njit.edu/tlc/facilities",
-            "https://www.njit.edu/tlc/",
-            "https://www.njit.edu/studyabroad/",
-            "https://www.njit.edu/studyabroad/#tab-1",
-            "https://www.njit.edu/studyabroad/exchange-partners",
-            "https://www.njit.edu/studyabroad/studyabroadprograms"
-        ]
-        await svc.build_or_update_corpus(seed_urls, replace=False)
+async def main() -> None:
+    svc = SearchService()
+    # 1) Build/refresh corpus from a starter set of pages
+    seed_urls = [
+        "https://www.njit.edu/",
+        "https://njit.campuslabs.com/engage/events",
+        "https://www.njit.edu/financialaid/merit-based-scholarships",
+        "https://www.njit.edu/financialaid/scholarship-universe-njit",
+        "https://www.njit.edu/research/",
+        "https://research.njit.edu/bioscience-and-bioengineering",
+        "https://research.njit.edu/data-science-and-management",
+        "https://research.njit.edu/environment-and-sustainability",
+        "https://research.njit.edu/robotics-and-machine-intelligence",
+        "https://research.njit.edu/uri/",
+        "https://www.njit.edu/counseling/services",
+        "https://www.njit.edu/counseling/mantra-health-mental-health-wellness",
+        "https://www.njit.edu/counseling/uwill-mental-health-and-wellness-service",
+        "https://app.uwill.com/login",
+        "https://hub.mantrahealth.com/login?utm_content=70&utm_source=schoolsitereferral&utm_medium=digital&utm_campaign=schoolsitereferral&to=%2F%3Futm_content%3D70%26utm_source%3Dschoolsitereferral%26utm_medium%3Ddigital%26utm_campaign%3Dschoolsitereferral",
+        "https://www.njit.edu/tlc/facilities",
+        "https://www.njit.edu/tlc/",
+        "https://www.njit.edu/studyabroad/",
+        "https://www.njit.edu/studyabroad/#tab-1",
+        "https://www.njit.edu/studyabroad/exchange-partners",
+        "https://www.njit.edu/studyabroad/studyabroadprograms"
+    ]
+    await svc.build_or_update_corpus(seed_urls, replace=False)
 
-        # 2) Search it
-        results = await svc.search("research opportunities and events", intent="events")
-        for c in results:
-            print(f"- {c.title} [{c.url}] :: {c.snippet[:120]}...")
+    # 2) Search it
+    results = await svc.search("research opportunities and events", intent="events")
+    for citation in results:
+        print(f"- {citation.title} [{citation.url}] :: {citation.snippet[:120]}...")
 
-    asyncio.run(main())
 
 # put this anywhere (e.g., below SearchService definition) and run it once
 async def add_manual_resources(manual: List[Dict[str, Any]], corpus_path: str = "data-ingestion/njit_resources.json"):
     svc = SearchService(Path(corpus_path))
-    # load existing corpus
     corpus = svc._load_corpus()
 
-    # merge by id (same logic as build_or_update_corpus)
     by_id = {it["id"]: it for it in corpus}
     for rec in manual:
         by_id[rec["id"]] = rec
@@ -623,55 +632,60 @@ async def add_manual_resources(manual: List[Dict[str, Any]], corpus_path: str = 
     svc._save_corpus(merged)
 
 
-asyncio.run(add_manual_resources([
-    {
-        "id": "https://www.youtube.com/@TheOrganicChemistryTutor",
-        "title": "Organic Chemistry Tutor",
-        "url": "https://www.youtube.com/@TheOrganicChemistryTutor",
-        "source": "YouTube",
-        "description": "Videos on chemistry, college math, stocks and bonds, personal finance.",
-        "retrieved": None,
-        "tags": ["academic help", "academic", "knowledge", "mathematics", "math", "finance", "stocks"],
-        "text": "Youtube videos with examples and problem solving for chemistry, science, math, finance, stocks, bonds, and more."
-    },
-    {
-        "id": "khanacademy",
-        "title": "Khan Academy",
-        "url": "https://www.khanacademy.org/",
-        "source": "Khan Academy",
-        "description": "Free online courses, lessons, and practice in math, science, computing, economics, and more.",
-        "retrieved": None,
-        "tags": ["academic help", "academic", "knowledge", "math", "mathematics", "videos", "practice"],
-        "text": "Educational videos and exercises across math, physics, chemistry, computer science, finance, and test prep."
-    },
-    {
-        "id": "geeksforgeeks",
-        "title": "GeeksforGeeks",
-        "url": "https://www.geeksforgeeks.org/",
-        "source": "GeeksforGeeks",
-        "description": "Computer science portal with tutorials, coding problems, interview preparation, and courses.",
-        "retrieved": None,
-        "tags": ["academic help", "coding", "knowledge", "career", "computer science"],
-        "text": "Articles, coding practice, and learning resources for programming, data structures, algorithms, and technical interview prep."
-    },
-    {
-        "id": "alexlorenlee",
-        "title": "Alex Lorén Lee",
-        "url": "https://www.youtube.com/@alexlorenlee",
-        "source": "YouTube",
-        "description": "Math educator sharing clear explanations and problem-solving strategies.",
-        "retrieved": None,
-        "tags": ["academic help", "math", "java", "knowledge", "mathematics"],
-        "text": "YouTube channel focused on mathematics with intuitive explanations and detailed walkthroughs of problem-solving methods."
-    },
-    {
-        "id": "PhysicsNinja",
-        "title": "Physics Ninja",
-        "url": "https://www.youtube.com/@PhysicsNinja",
-        "source": "YouTube",
-        "description": "Physics tutorials covering mechanics, electromagnetism, and exam preparation.",
-        "retrieved": None,
-        "tags": ["academic help", "physics", "knowledge"],
-        "text": "YouTube channel with physics lectures, examples, and problem solving aimed at helping students succeed in physics courses."
-    }
-]))
+if __name__ == "__main__":
+    asyncio.run(main())
+
+    manual_resources = [
+        {
+            "id": "https://www.youtube.com/@TheOrganicChemistryTutor",
+            "title": "Organic Chemistry Tutor",
+            "url": "https://www.youtube.com/@TheOrganicChemistryTutor",
+            "source": "YouTube",
+            "description": "Videos on chemistry, college math, stocks and bonds, personal finance.",
+            "retrieved": None,
+            "tags": ["academic help", "academic", "knowledge", "mathematics", "math", "finance", "stocks"],
+            "text": "Youtube videos with examples and problem solving for chemistry, science, math, finance, stocks, bonds, and more."
+        },
+        {
+            "id": "khanacademy",
+            "title": "Khan Academy",
+            "url": "https://www.khanacademy.org/",
+            "source": "Khan Academy",
+            "description": "Free online courses, lessons, and practice in math, science, computing, economics, and more.",
+            "retrieved": None,
+            "tags": ["academic help", "academic", "knowledge", "math", "mathematics", "videos", "practice"],
+            "text": "Educational videos and exercises across math, physics, chemistry, computer science, finance, and test prep."
+        },
+        {
+            "id": "geeksforgeeks",
+            "title": "GeeksforGeeks",
+            "url": "https://www.geeksforgeeks.org/",
+            "source": "GeeksforGeeks",
+            "description": "Computer science portal with tutorials, coding problems, interview preparation, and courses.",
+            "retrieved": None,
+            "tags": ["academic help", "coding", "knowledge", "career", "computer science"],
+            "text": "Articles, coding practice, and learning resources for programming, data structures, algorithms, and technical interview prep."
+        },
+        {
+            "id": "alexlorenlee",
+            "title": "Alex Loren Lee",
+            "url": "https://www.youtube.com/@alexlorenlee",
+            "source": "YouTube",
+            "description": "Math educator sharing clear explanations and problem-solving strategies.",
+            "retrieved": None,
+            "tags": ["academic help", "math", "java", "knowledge", "mathematics"],
+            "text": "YouTube channel focused on mathematics with intuitive explanations and detailed walkthroughs of problem-solving methods."
+        },
+        {
+            "id": "PhysicsNinja",
+            "title": "Physics Ninja",
+            "url": "https://www.youtube.com/@PhysicsNinja",
+            "source": "YouTube",
+            "description": "Physics tutorials covering mechanics, electromagnetism, and exam preparation.",
+            "retrieved": None,
+            "tags": ["academic help", "physics", "knowledge"],
+            "text": "YouTube channel with physics lectures, examples, and problem solving aimed at helping students succeed in physics courses."
+        }
+    ]
+    asyncio.run(add_manual_resources(manual_resources))
+

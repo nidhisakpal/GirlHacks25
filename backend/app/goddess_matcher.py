@@ -139,6 +139,9 @@ class GoddessMatcher:
                 "keywords": [
                     "study", "exam", "class", "course", "research", "homework", "professor",
                     "grades", "tutoring", "academic", "library", "office hours", "capstone",
+                    "math", "science", "engineering", "computer", "programming", "coding",
+                    "assignment", "project", "thesis", "dissertation", "gpa", "major", "minor",
+                    "scholarship", "money", "funding", "job", "career", "internship", "stress", "mental health"
                 ],
                 "keyword_weight": 1.5,
                 "intent_boost": {"academics": 3.0, "career": 1.0},
@@ -156,6 +159,9 @@ class GoddessMatcher:
                 "keywords": [
                     "stress", "burnout", "wellness", "self-esteem", "confidence",
                     "mental health", "therapy", "counseling", "friend", "community", "mindfulness",
+                    "anxiety", "depression", "lonely", "loneliness", "social", "relationships",
+                    "dating", "romance", "self-care", "meditation", "yoga", "exercise", "health",
+                    "study", "exam", "grades", "scholarship", "money", "job", "career", "internship"
                 ],
                 "keyword_weight": 1.4,
                 "intent_boost": {"wellbeing": 3.0},
@@ -173,6 +179,9 @@ class GoddessMatcher:
                 "keywords": [
                     "mentor", "mentorship", "internship", "job", "career", "co-op", "networking",
                     "resume", "portfolio", "professional", "industry", "shadowing",
+                    "work", "employment", "interview", "linkedin", "experience", "skills",
+                    "leadership", "teamwork", "project management", "startup", "entrepreneur",
+                    "study", "exam", "grades", "scholarship", "money", "funding", "stress", "mental health"
                 ],
                 "keyword_weight": 1.4,
                 "intent_boost": {"career": 2.5, "academics": 1.0},
@@ -190,6 +199,9 @@ class GoddessMatcher:
                 "keywords": [
                     "scholarship", "scholarships", "grant", "financial aid", "funding", "stipend",
                     "money", "tuition", "payment", "emergency fund", "fellowship",
+                    "cost", "expensive", "afford", "budget", "loan", "debt", "financial",
+                    "expensive", "cheap", "free", "cost-effective", "financial planning",
+                    "study", "exam", "grades", "job", "career", "internship", "stress", "mental health"
                 ],
                 "keyword_weight": 1.6,
                 "intent_boost": {"scholarships": 3.0},
