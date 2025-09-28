@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import logging
 import os
 from typing import List, Optional
@@ -7,12 +7,10 @@ import google.generativeai as genai
 
 from app.database import add_chat_message, append_intents, get_chat_history, get_user, update_user_goddess
 from app.goddess_matcher import GoddessMatcher
-from app.models import ChatMessage, ChatResponse, Citation, IntentPrediction
+from app.models import ChatMessage, ChatResponse, Citation, IntentPrediction, MatchResult
 from app.search_service import SearchService
 
 from datetime import datetime, timedelta, timezone
-from collections import Counter  # deque removed
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,43 +38,16 @@ class IntentClassifier:
 
     KEYWORDS = {
         "academics": [
-            "class",
-            "course",
-            "study",
-            "exam",
-            "professor",
-            "grade",
-            "tutor",
-            "research",
+            "class", "course", "study", "exam", "professor", "grade", "tutor", "research",
         ],
         "career": [
-            "internship",
-            "job",
-            "career",
-            "resume",
-            "interview",
-            "handshake",
-            "co-op",
-            "salary",
+            "internship", "job", "career", "resume", "interview", "handshake", "co-op", "salary",
         ],
         "events": [
-            "event",
-            "workshop",
-            "club",
-            "meetup",
-            "hackathon",
-            "seminar",
-            "career fair",
+            "event", "workshop", "club", "meetup", "hackathon", "seminar", "career fair",
         ],
         "wellbeing": [
-            "stress",
-            "wellness",
-            "mental",
-            "therapy",
-            "health",
-            "burnout",
-            "sleep",
-            "balance",
+            "stress", "wellness", "mental", "therapy", "health", "burnout", "sleep", "balance",
         ],
     }
 
@@ -128,11 +99,29 @@ class ChatService:
         self._intent_classifier = intent_classifier or IntentClassifier()
         self._gemini = gemini_client or GeminiClient()
 
-        # Switching policy knobs
-        self._suggest_min_conf = 0.51   # τ: minimum classifier confidence
-        self._wins_window = 5           # M: window size
-        self._wins_needed = 2           # N: require same winner ≥ N in last M turns
-        self._handoff_cooldown = timedelta(hours=6)  # snooze after a decline
+        # Routing thresholds tuned for matcher scores
+        self._auto_switch_threshold = 2.5  # raw matcher score needed to auto-switch
+        self._handoff_suggest_threshold = 1.6  # score that triggers a handoff suggestion
+        self._intent_suggestion_floor = 0.55  # classifier confidence that supports a suggestion
+
+        self._switching_cues = [
+            "switch",
+            "change",
+            "different",
+            "another",
+            "someone else",
+            "career help",
+            "job",
+            "internship",
+            "stress",
+            "mental health",
+            "burnout",
+            "wellness",
+            "money",
+            "funding",
+            "scholarship",
+            "grant",
+        ]
 
         personas = self._matcher.personas()
         self._persona_lookup = {
@@ -145,136 +134,87 @@ class ChatService:
             },
         }
 
-    def _get_routing_state(self, user):
-        rs = getattr(user, "routing_state", None) or {}
-        wins = rs.get("win_history", [])
-        declined = rs.get("declined", {})  # { goddess: iso8601 }
-        wins = list(wins)[-self._wins_window:]
-        return {"win_history": wins, "declined": dict(declined)}
-
-    async def _save_routing_state(self, db, user_id: str, rs: dict):
-        # piggyback on update_user_goddess to persist small state blob
-        await update_user_goddess(
-            db, user_id,
-            None,  # keep current selected_goddess unchanged
-            quiz_results=None,
-            suggested=None,
-            handoff_stage=None,
-            routing_state=rs
-        )
-
     async def get_response(self, user_id: str, message: str, db) -> ChatResponse:
         user = await get_user(db, user_id)
         if not user:
             raise ValueError("User profile not found")
 
-        active_goddess = user.selected_goddess or "gaia"
-        stage = user.handoff_stage
-        suggested = user.suggested_goddess
+        current_goddess = user.selected_goddess or "gaia"
+        
+        # Handle pending confirmations first
+        if user.handoff_stage == "awaiting_confirmation":
+            return await self._handle_confirmation_response(user_id, message, db, user)
 
-        history = await get_chat_history(db, user_id)
-
-        # Log the user's message in the current thread
-        user_entry = await add_chat_message(
-            db, user_id, role="user", content=message, goddess=active_goddess
-        )
-        thread_messages = history.messages.get(active_goddess, [])
-        recent_messages = thread_messages[-6:] + [user_entry]
-
-        # ---------- 1) If we're awaiting confirmation, block everything except yes/no ----------
-        if stage == "awaiting_confirmation" and suggested:
-            return ChatResponse(
-                message=(
-                    f"I can connect you with {self._persona_lookup.get(suggested, {}).get('display_name', suggested.title())}."
-                ),
-                goddess=active_goddess,
-                intent="handoff_request",
-                citations=[],
-                trace={
-                    "stage": "awaiting_confirmation",
-                    "suggested": suggested,
-                    "current_goddess": active_goddess,
-                },
-            )
-
-        # ---------- 2) Classify, match, and possibly request confirmation ----------
+        # Classify intent and find best match for routing
         intent_prediction = await self._intent_classifier.predict(message)
         match_result = self._matcher.match_for_message(message, intent_prediction.intent)
+        decision = self._decide_routing(
+            current_goddess, match_result, intent_prediction.confidence, message
+        )
+        target_goddess = decision["target"]
+        suggested_goddess = decision.get("suggested")
 
-        # --- ROUTING STATE UPDATE & DECISION GATES ---
-        rs = self._get_routing_state(user)
-
-        # push current winner (candidate or current)
-        winner = match_result.goddess or active_goddess
-        rs["win_history"] = (rs.get("win_history", []) + [winner])[-self._wins_window:]
-
-        # persistence: how often did this candidate win recently?
-        wins = Counter(rs["win_history"])
-        wins_for_suggested = wins.get(match_result.goddess, 0)
-
-        # cooldown after declines
-        declined = rs.get("declined", {})
-        declined_iso = declined.get(match_result.goddess)
-        declined_recently = False
-        if declined_iso:
-            try:
-                t = datetime.fromisoformat(str(declined_iso).replace("Z", "+00:00"))
-                declined_recently = (datetime.now(timezone.utc) - t) < self._handoff_cooldown
-            except Exception:
-                declined_recently = False
-
-        # gated suggestion rule
-        should_suggest = (
-            match_result.goddess
-            and match_result.goddess != active_goddess
-            and intent_prediction.confidence >= self._suggest_min_conf  # confidence floor τ
-            and wins_for_suggested >= self._wins_needed                  # persistence N-of-M
-            and not declined_recently                                    # decline cooldown
+        # Log user message
+        history = await get_chat_history(db, user_id)
+        user_entry = await add_chat_message(
+            db, user_id, role="user", content=message, goddess=target_goddess
         )
 
-        if should_suggest:
+        # Build conversation context for the reply
+        thread_messages = history.messages.get(target_goddess, [])
+        recent_messages = thread_messages[-6:] + [user_entry]
+
+        citations = await self._search.search(message, intent_prediction.intent)
+
+        if decision["mode"] == "suggest" and suggested_goddess:
+            response_text = await self._generate_handoff_suggestion(
+                target_goddess,
+                suggested_goddess,
+                recent_messages,
+                message,
+                citations,
+                match_result.rationale,
+            )
+            response_intent = "handoff_request"
+        else:
+            response_text = await self._generate_response(
+                target_goddess, recent_messages, message, citations
+            )
+            response_intent = intent_prediction.intent
+
+        update_kwargs = {}
+        if decision["mode"] == "switch":
+            update_kwargs = {
+                "goddess": target_goddess,
+                "suggested": None,
+                "handoff_stage": None,
+                "routing_state": None,
+            }
+        elif decision["mode"] == "suggest" and suggested_goddess:
+            update_kwargs = {
+                "goddess": target_goddess,
+                "suggested": suggested_goddess,
+                "handoff_stage": "awaiting_confirmation",
+                "routing_state": {
+                    "score": match_result.confidence,
+                    "intent": intent_prediction.intent,
+                },
+            }
+        elif not user.selected_goddess:
+            update_kwargs = {
+                "goddess": target_goddess,
+                "suggested": None,
+                "handoff_stage": None,
+                "routing_state": None,
+            }
+
+        if update_kwargs:
             await update_user_goddess(
                 db,
                 user_id,
-                active_goddess,  # do not switch yet
                 quiz_results=user.quiz_results or {},
-                suggested=match_result.goddess,
-                handoff_stage="awaiting_confirmation",
+                **update_kwargs,
             )
-            # clear cooldown for this goddess (we're explicitly asking again after evidence)
-            rs.get("declined", {}).pop(match_result.goddess, None)
-            await self._save_routing_state(db, user_id, rs)
-            return ChatResponse(
-                message=(
-                    f"I can connect you with {self._persona_lookup.get(match_result.goddess, {}).get('display_name', match_result.goddess.title())}. "
-                    "Shall I introduce you?"
-                ),
-                goddess=active_goddess,
-                intent="handoff_request",
-                citations=[],
-                trace={
-                    "intent": intent_prediction.model_dump(),
-                    "match": match_result.model_dump(),
-                    "stage": "awaiting_confirmation",
-                    "suggested": match_result.goddess,
-                    "current_goddess": active_goddess,
-                },
-            )
-
-        # persist updated window even if we didn’t suggest
-        await self._save_routing_state(db, user_id, rs)
-
-        # ---------- 3) Normal flow (we have permission to continue) ----------
-        citations = await self._search.search(message, intent_prediction.intent)
-        persona = self._persona_lookup.get(active_goddess, {})
-        goddess_name = persona.get("display_name", active_goddess.title())
-        persona_prompt = persona.get("persona", "You are a helpful mentor.")
-
-        prompt = self._build_prompt(
-            persona_prompt, goddess_name, recent_messages, message, citations
-        )
-        llm_text = await self._gemini.generate(prompt)
-        response_text = self._post_process(llm_text)
 
         await append_intents(db, user_id, [intent_prediction.intent])
         await add_chat_message(
@@ -282,44 +222,127 @@ class ChatService:
             user_id,
             role="assistant",
             content=response_text,
-            goddess=active_goddess,
-            intent=intent_prediction.intent,
+            goddess=target_goddess,
+            intent=response_intent,
             citations=citations,
         )
+
+        trace = {
+            "intent": intent_prediction.model_dump(),
+            "match": match_result.model_dump(),
+            "mode": decision["mode"],
+            "previous_goddess": current_goddess,
+            "current_goddess": target_goddess,
+            "switched": decision["mode"] == "switch",
+        }
+        if decision["mode"] == "suggest" and suggested_goddess:
+            trace.update(
+                {
+                    "stage": "awaiting_confirmation",
+                    "suggested": suggested_goddess,
+                    "handoff_reason": match_result.rationale,
+                }
+            )
 
         return ChatResponse(
             message=response_text,
-            goddess=active_goddess,
-            intent=intent_prediction.intent,
+            goddess=target_goddess,
+            intent=response_intent,
             citations=citations,
-            trace={
-                "intent": intent_prediction.model_dump(),
-                "match": match_result.model_dump(),
-                "current_goddess": active_goddess,
-                "stage": "confirmed" if stage == "confirmed" else None,
-            },
+            trace=trace,
         )
 
-    def _build_prompt(
+    def _decide_routing(
         self,
-        persona_prompt: str,
-        goddess_name: str,
-        history: List[ChatMessage],
-        latest_message: str,
-        citations: List[Citation],
-    ) -> str:
-        citation_lines = []
+        current: str,
+        match_result: MatchResult,
+        intent_confidence: float,
+        message: str,
+    ) -> dict:
+        """Choose whether to stay, suggest a handoff, or auto-switch personas."""
+
+        decision = {"mode": "stay", "target": current, "suggested": None}
+        suggested = match_result.goddess
+        if not suggested or suggested == current:
+            return decision
+
+        score = match_result.confidence
+        message_lower = message.lower()
+        has_switching_cue = any(cue in message_lower for cue in self._switching_cues)
+
+        if score >= self._auto_switch_threshold or (
+            has_switching_cue and score >= self._handoff_suggest_threshold
+        ):
+            decision.update({"mode": "switch", "target": suggested})
+            return decision
+
+        if score >= self._handoff_suggest_threshold or (
+            intent_confidence >= self._intent_suggestion_floor and has_switching_cue
+        ):
+            decision.update({"mode": "suggest", "suggested": suggested})
+
+        return decision
+
+    async def _handle_confirmation_response(self, user_id: str, message: str, db, user) -> ChatResponse:
+        """Handle yes/no responses to handoff suggestions."""
+        message_lower = message.lower().strip()
+
+        # Yes responses
+        if any(word in message_lower for word in ["yes", "y", "ok", "sure", "please", "go ahead"]):
+            return await self.confirm_handoff(user_id, db)
+        
+        # No responses  
+        if any(word in message_lower for word in ["no", "n", "not", "stay", "keep"]):
+            return await self.decline_handoff(user_id, db)
+        
+        # Unclear response - ask for clarification
+        current = user.selected_goddess or "gaia"
+        suggested_name = self._persona_lookup.get(user.suggested_goddess, {}).get('display_name', 'specialist')
+        
+        return ChatResponse(
+            message=f"Would you like me to connect you with {suggested_name}? Please say 'yes' or 'no'.",
+            goddess=current,
+            intent="handoff_clarification",
+            citations=[],
+            trace={
+                "stage": "awaiting_confirmation",
+                "needs_clarification": True,
+                "suggested": user.suggested_goddess,
+            }
+        )
+
+    def _format_citation_lines(self, citations: List[Citation]) -> List[str]:
+        lines = []
         for idx, citation in enumerate(citations, start=1):
-            citation_lines.append(
+            lines.append(
                 f"[{idx}] {citation.title} - {citation.snippet[:220]} (Source: {citation.source}) {citation.url}"
             )
-        if not citation_lines:
-            citation_lines.append("No resources matched. If the topic requires facts, acknowledge the gap.")
+        if not lines:
+            lines.append(
+                "Azure Search returned no matching resources. Let the student know you'll investigate and follow up."
+            )
+        return lines
 
-        history_lines: List[str] = []
-        for message in history[-5:]:
-            speaker = goddess_name if message.role == "assistant" else "Student"
-            history_lines.append(f"{speaker}: {message.content.strip()}")
+    def _format_history_lines(
+        self, goddess_name: str, history: List[ChatMessage]
+    ) -> List[str]:
+        lines: List[str] = []
+        for msg in history[-5:]:
+            speaker = goddess_name if msg.role == "assistant" else "Student"
+            lines.append(f"{speaker}: {msg.content.strip()}")
+        return lines
+
+    async def _generate_response(
+        self, goddess: str, history: List[ChatMessage], message: str, citations: List[Citation]
+    ) -> str:
+        """Generate response using the specified goddess persona."""
+
+        persona = self._persona_lookup.get(goddess, {})
+        goddess_name = persona.get("display_name", goddess.title())
+        persona_prompt = persona.get("persona", "You are a helpful mentor.")
+
+        citation_lines = self._format_citation_lines(citations)
+        history_lines = self._format_history_lines(goddess_name, history)
 
         prompt = (
             f"{persona_prompt}\n\n"
@@ -328,67 +351,81 @@ class ChatService:
             "brackets like [1]. Offer next steps and keep responses under 180 words.\n"
             "If resources are missing for the request, state that you will follow up after "
             "checking with campus partners.\n\n"
-            f"Resources:\n{'\n'.join(citation_lines)}\n\n"
-            f"Conversation so far:\n{'\n'.join(history_lines)}\n\n"
-            f"Student: {latest_message.strip()}\n"
+            f"Resources:\n{chr(10).join(citation_lines)}\n\n"
+            f"Conversation so far:\n{chr(10).join(history_lines)}\n\n"
+            f"Student: {message.strip()}\n"
             f"{goddess_name}:"
         )
-        return prompt
 
-    async def confirm_handoff(self, user_id: str, db) -> ChatResponse:
-        user = await get_user(db, user_id)
-        if not user or not user.suggested_goddess:
-            active = (user.selected_goddess if user else "gaia") or "gaia"
-            return ChatResponse(
-                message="No handoff is pending.",
-                goddess=active,
-                intent="handoff_none",
-                citations=[],
-                trace={"stage": None, "current_goddess": active},
-            )
+        return await self._gemini.generate(prompt)
 
-        # Switch to suggested goddess
-        new_goddess = user.suggested_goddess
-        await update_user_goddess(
-            db,
-            user_id,
-            new_goddess,
-            quiz_results=user.quiz_results or {},
-            suggested=None,
-            handoff_stage=None,
+    async def _generate_handoff_suggestion(
+        self,
+        current_goddess: str,
+        suggested_goddess: str,
+        history: List[ChatMessage],
+        message: str,
+        citations: List[Citation],
+        rationale: List[str],
+    ) -> str:
+        """Prompt the current goddess to propose a handoff to a specialist."""
+
+        current_persona = self._persona_lookup.get(current_goddess, {})
+        current_name = current_persona.get("display_name", current_goddess.title())
+        current_prompt = current_persona.get("persona", "You are a helpful mentor.")
+
+        suggested_persona = self._persona_lookup.get(suggested_goddess, {})
+        suggested_name = suggested_persona.get(
+            "display_name", suggested_goddess.title()
         )
+        suggested_tagline = suggested_persona.get("tagline", "specialist support")
 
-        # reset decline cooldown for the new goddess; keep win history rolling
-        rs = self._get_routing_state(user)
-        rs.get("declined", {}).pop(new_goddess, None)
-        await self._save_routing_state(db, user_id, rs)
+        handoff_reason = "; ".join(rationale) if rationale else "They specialise in this topic."
 
-        # Generate a short welcome/continuation as the new goddess
-        history = await get_chat_history(db, user_id)
-        thread_messages = history.messages.get(new_goddess, [])
-        recent_messages = thread_messages[-5:]  # context for continuity
-
-        persona = self._persona_lookup.get(new_goddess, {})
-        goddess_name = persona.get("display_name", new_goddess.title())
-        persona_prompt = persona.get("persona", "You are a helpful mentor.")
+        citation_lines = self._format_citation_lines(citations)
+        history_lines = self._format_history_lines(current_name, history)
 
         prompt = (
-            f"{persona_prompt}\n\n"
-            f"You have just been introduced to the student via a handoff. "
-            f"Briefly (<=80 words) greet them as {goddess_name}, confirm you’ll help, and ask one precise follow-up question."
+            f"{current_prompt}\n\n"
+            "You mentor an NJIT student. You believe another goddess is better suited to assist.\n"
+            "Write under 150 words, stay warm, and keep a mentoring tone.\n"
+            f"Explain why {suggested_name} ({suggested_tagline}) fits best, citing resources with [#] if you reference them.\n"
+            f"Reasoning: {handoff_reason}.\n"
+            "Ask clearly if the student wants to be connected (yes/no).\n"
+            "If resources are missing, say you'll gather more.\n\n"
+            f"Resources:\n{chr(10).join(citation_lines)}\n\n"
+            f"Conversation so far:\n{chr(10).join(history_lines)}\n\n"
+            f"Student: {message.strip()}\n"
+            f"{current_name}:"
         )
 
-        llm_text = await self._gemini.generate(prompt)
-        response_text = self._post_process(llm_text)
+        return await self._gemini.generate(prompt)
 
+    async def confirm_handoff(self, user_id: str, db) -> ChatResponse:
+        """Confirm and execute handoff to suggested goddess."""
+        user = await get_user(db, user_id)
+        if not user or not user.suggested_goddess:
+            current = user.selected_goddess if user else "gaia"
+            return ChatResponse(
+                message="No handoff is pending.",
+                goddess=current, intent="handoff_none", citations=[],
+                trace={"stage": None, "current_goddess": current}
+            )
+
+        previous = user.selected_goddess or "gaia"
+        new_goddess = user.suggested_goddess
+        await update_user_goddess(
+            db, user_id, new_goddess,
+            quiz_results=user.quiz_results or {},
+            suggested=None, handoff_stage=None
+        )
+
+        # Generate welcome message
+        response_text = await self._generate_handoff_welcome(new_goddess)
+        
         await add_chat_message(
-            db,
-            user_id,
-            role="assistant",
-            content=response_text,
-            goddess=new_goddess,
-            intent="handoff_welcome",
-            citations=[],
+            db, user_id, role="assistant", content=response_text,
+            goddess=new_goddess, intent="handoff_welcome", citations=[]
         )
 
         return ChatResponse(
@@ -396,61 +433,73 @@ class ChatService:
             goddess=new_goddess,
             intent="handoff_welcome",
             citations=[],
-            trace={"stage": None, "current_goddess": new_goddess},
+            trace={
+                "stage": None,
+                "current_goddess": new_goddess,
+                "previous_goddess": previous,
+                "switched": True,
+                "mode": "switch",
+            }
         )
 
     async def decline_handoff(self, user_id: str, db) -> ChatResponse:
+        """Decline handoff and stay with current goddess."""
         user = await get_user(db, user_id)
-        active = user.selected_goddess if user and user.selected_goddess else "gaia"
+        current = user.selected_goddess if user and user.selected_goddess else "gaia"
 
-        # Clear suggestion and stay on current goddess
+        # Clear suggestion
         await update_user_goddess(
-            db,
-            user_id,
-            active,
+            db, user_id, current,
             quiz_results=user.quiz_results or {},
-            suggested=None,
-            handoff_stage=None,
+            suggested=None, handoff_stage=None
         )
 
-        # Gentle acknowledgement from current goddess
-        persona = self._persona_lookup.get(active, {})
-        goddess_name = persona.get("display_name", active.title())
-        persona_prompt = persona.get("persona", "You are a helpful mentor.")
-        prompt = (
-            f"{persona_prompt}\n\n"
-            f"As {goddess_name}, acknowledge the choice kindly (<=40 words) and continue support."
-        )
-        llm_text = await self._gemini.generate(prompt)
-        response_text = self._post_process(llm_text)
-
+        # Generate acknowledgment
+        response_text = await self._generate_decline_acknowledgment(current)
+        
         await add_chat_message(
-            db,
-            user_id,
-            role="assistant",
-            content=response_text,
-            goddess=active,
-            intent="handoff_declined",
-            citations=[],
+            db, user_id, role="assistant", content=response_text,
+            goddess=current, intent="handoff_declined", citations=[]
         )
-
-        # mark a short-lived decline cooldown for that suggested goddess
-        rs = self._get_routing_state(user)
-        if user.suggested_goddess:
-            rs.setdefault("declined", {})[user.suggested_goddess] = datetime.now(timezone.utc).isoformat()
-        await self._save_routing_state(db, user_id, rs)
 
         return ChatResponse(
             message=response_text,
-            goddess=active,
+            goddess=current,
             intent="handoff_declined",
             citations=[],
-            trace={"stage": None, "current_goddess": active},
+            trace={
+                "stage": None,
+                "current_goddess": current,
+                "switched": False,
+                "mode": "stay",
+            }
         )
 
-    @staticmethod
-    def _post_process(text: str) -> str:
-        cleaned = text.strip()
-        if cleaned.startswith("\n"):
-            cleaned = cleaned.lstrip()
-        return cleaned
+    async def _generate_handoff_welcome(self, goddess: str) -> str:
+        """Generate welcome message for new goddess."""
+        persona = self._persona_lookup.get(goddess, {})
+        goddess_name = persona.get("display_name", goddess.title())
+        persona_prompt = persona.get("persona", "You are a helpful mentor.")
+
+        prompt = (
+            f"{persona_prompt}\n\n"
+            f"You have just been introduced to the student. "
+            f"Briefly (<=80 words) greet them as {goddess_name}, confirm you'll help, "
+            f"and ask one precise follow-up question to understand their needs better."
+        )
+        
+        return await self._gemini.generate(prompt)
+
+    async def _generate_decline_acknowledgment(self, goddess: str) -> str:
+        """Generate acknowledgment for declined handoff."""
+        persona = self._persona_lookup.get(goddess, {})
+        goddess_name = persona.get("display_name", goddess.title())
+        persona_prompt = persona.get("persona", "You are a helpful mentor.")
+
+        prompt = (
+            f"{persona_prompt}\n\n"
+            f"As {goddess_name}, acknowledge the student's choice to continue with you "
+            f"kindly (<=40 words) and offer continued support."
+        )
+        
+        return await self._gemini.generate(prompt)

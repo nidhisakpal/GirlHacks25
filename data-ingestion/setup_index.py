@@ -1,5 +1,7 @@
 import os
 import json
+import re
+import hashlib
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 import time # Import the time module
@@ -25,6 +27,21 @@ from azure.search.documents.indexes.models import (
 
 # Load environment variables from the backend .env file
 load_dotenv(dotenv_path='../backend/.env')
+
+_KEY_PATTERN = re.compile(r"[^A-Za-z0-9_\-=]+")
+
+
+def _safe_document_id(candidate: Optional[str], fallback: str) -> str:
+    """Ensure Azure AI Search document IDs only use accepted characters."""
+
+    if candidate:
+        cleaned = _KEY_PATTERN.sub('-', candidate.strip())
+        cleaned = cleaned.strip('-')
+        if cleaned:
+            return cleaned[:128]
+
+    digest = hashlib.sha1(fallback.encode('utf-8')).hexdigest()
+    return f"doc-{digest}"
 
 def format_date(date_str: Optional[str]) -> Optional[str]:
     """Parse a date string and return it in ISO 8601 UTC format with millisecond precision."""
@@ -137,8 +154,15 @@ class AzureSearchIndexer:
             # Prepare documents for upload
             search_docs = []
             for i, doc in enumerate(documents):
+                raw_key = doc.get("id") or doc.get("url") or doc.get("title") or f"doc-{i}"
+                safe_id = _safe_document_id(str(raw_key), f"doc-{i}")
+
+                tags = doc.get("tags", []) or []
+                if isinstance(tags, str):
+                    tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
+
                 search_doc = {
-                    "id": doc.get("id", str(i)),
+                    "id": safe_id,
                     "title": doc.get("title", ""),
                     "description": doc.get("description", ""),
                     "content": doc.get("content", doc.get("description", "")),
@@ -147,7 +171,7 @@ class AzureSearchIndexer:
                     "category": doc.get("category", ""),
                     "date": format_date(doc.get("date")),
                     "scraped_at": format_date(doc.get("scraped_at")),
-                    "tags": doc.get("tags", [])
+                    "tags": tags,
                     # content_vector is omitted as we don't have embeddings yet
                 }
                 search_docs.append(search_doc)
@@ -202,7 +226,7 @@ def main():
     
     # Load sample data
     try:
-        with open("njit_resources.json", "r") as f:
+        with open("njit_resources.json", "r", encoding="utf-8") as f:
             resources = json.load(f)
         
         print(f"Loaded {len(resources)} resources from JSON file")
