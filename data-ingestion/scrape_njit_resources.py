@@ -26,7 +26,7 @@ class Citation:
     url: str
     source: str
     snippet: str
-    published: Optional[str] = None
+    retrieved: Optional[str] = None
 
 
 # ---------------------------------------------------------------------
@@ -136,9 +136,9 @@ class WebScraper:
                 if desc:
                     break
 
-        # Published-ish date (best effort)
+        # retrieved-ish date (best effort)
         date = None
-        for key in ["article:published_time", "og:updated_time", "date"]:
+        for key in ["article:retrieved_time", "og:updated_time", "date"]:
             tag = soup.find("meta", attrs={"name": key}) or soup.find("meta", attrs={"property": key})
             if tag and tag.get("content"):
                 date = tag["content"].strip()
@@ -150,7 +150,7 @@ class WebScraper:
         if link_tag and link_tag.get("href"):
             canon = link_tag["href"].strip()
 
-        return {"title": title, "description": desc, "published": date, "canonical": canon}
+        return {"title": title, "description": desc, "retrieved": date, "canonical": canon}
 
     @staticmethod
     @staticmethod
@@ -215,7 +215,7 @@ class WebScraper:
             "url": final_url,
             "source": urlparse(final_url).netloc,
             "description": meta["description"] or text[:300],
-            "published": meta["published"],
+            "retrieved": meta["retrieved"],
             "tags": [],
             "text": text,
         }
@@ -316,7 +316,7 @@ class SearchService:
             url=item.get("url", ""),
             source=source,
             snippet=item.get("description", ""),
-            published=item.get("published"),
+            retrieved=item.get("retrieved"),
         )
 
 
@@ -356,3 +356,61 @@ if __name__ == "__main__":
             print(f"- {c.title} [{c.url}] :: {c.snippet[:120]}...")
 
     asyncio.run(main())
+
+# put this anywhere (e.g., below SearchService definition) and run it once
+async def add_manual_resources(manual: List[Dict[str, Any]], corpus_path: str = "data-ingestion/njit_resources.json"):
+    svc = SearchService(Path(corpus_path))
+    # load existing corpus
+    corpus = svc._load_corpus()
+
+    # merge by id (same logic as build_or_update_corpus)
+    by_id = {it["id"]: it for it in corpus}
+    for rec in manual:
+        by_id[rec["id"]] = rec
+
+    merged = list(by_id.values())
+    svc._save_corpus(merged)
+
+
+asyncio.run(add_manual_resources([
+  {
+    "id": "https://www.khanacademy.org/",
+    "title": "Khan Academy",
+    "url": "https://www.khanacademy.org/",
+    "source": "Khan Academy",
+    "description": "Free online courses, lessons, and practice in math, science, computing, economics, and more.",
+    "published": None,
+    "tags": ["academic help", "academic", "knowledge"],
+    "text": "Educational videos and exercises across math, physics, chemistry, computer science, finance, and test prep."
+  },
+  {
+    "id": "https://www.geeksforgeeks.org/",
+    "title": "GeeksforGeeks",
+    "url": "https://www.geeksforgeeks.org/",
+    "source": "GeeksforGeeks",
+    "description": "Computer science portal with tutorials, coding problems, interview preparation, and courses.",
+    "published": None,
+    "tags": ["academic help", "coding", "knowledge", "career"],
+    "text": "Articles, coding practice, and learning resources for programming, data structures, algorithms, and technical interview prep."
+  },
+  {
+    "id": "https://www.youtube.com/@alexlorenlee",
+    "title": "Alex Lorén Lee",
+    "url": "https://www.youtube.com/@alexlorenlee",
+    "source": "YouTube",
+    "description": "Math educator sharing clear explanations and problem-solving strategies.",
+    "published": None,
+    "tags": ["academic help", "math", "knowledge"],
+    "text": "YouTube channel focused on mathematics with intuitive explanations and detailed walkthroughs of problem-solving methods."
+  },
+  {
+    "id": "https://www.youtube.com/@PhysicsNinja",
+    "title": "Physics Ninja",
+    "url": "https://www.youtube.com/@PhysicsNinja",
+    "source": "YouTube",
+    "description": "Physics tutorials covering mechanics, electromagnetism, and exam preparation.",
+    "published": None,
+    "tags": ["academic help", "physics", "knowledge"],
+    "text": "YouTube channel with physics lectures, examples, and problem solving aimed at helping students succeed in physics courses."
+  }
+]))
