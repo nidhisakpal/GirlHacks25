@@ -227,7 +227,7 @@ class WebScraper:
                     'student club', 'community', 'belonging', 'housing', 'residence', 'peer', 'resident',
                     'coding', 'programming', 'software', 'engineering', 'machine learning',
                     'data science', 'cybersecurity', 'technology', 'innovation', 'design', 'productivity',
-                    'online learning'
+                    'online learning', 'mantra health', 'uwill'
                     ]
 
         for keyword in keywords:
