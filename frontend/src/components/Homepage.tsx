@@ -13,7 +13,7 @@ const Homepage: React.FC<HomepageProps> = ({ children }) => {
   return (
     <section className="flex w-full flex-col px-2 sm:px-0">
       <div className="flex flex-col items-center gap-1 text-center">
-        <img src={logoImage} alt="Gaia Logo" className="h-[300px] w-auto" />
+        <img src={logoImage} alt="Gaia Logo" className="h-[150px] w-auto" />
       </div>
 
       <div className="flex flex-wrap items-center justify-between">
