@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Any, Dict
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient, PyJWKClientError
 
@@ -27,8 +27,12 @@ def _jwks_client() -> PyJWKClient:
 
 
 async def verify_token(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(http_bearer),
 ) -> Dict[str, Any]:
+    if request.method == "OPTIONS":
+        return {}
+
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

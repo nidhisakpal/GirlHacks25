@@ -38,49 +38,53 @@ class SearchService:
                 credential=AzureKeyCredential(self.key),
             )
         else:
-            LOGGER.warning("Azure Search configuration missing; using fallback corpus")
+            LOGGER.warning(
+                "Azure Search disabled (endpoint=%s, key=%s, index=%s, libs=%s)",
+                bool(self.endpoint),
+                bool(self.key),
+                bool(self.index_name),
+                bool(AzureKeyCredential and SearchClient),
+            )
 
         self._fallback_corpus = self._load_fallback_corpus()
 
     async def search(self, query: str, intent: Optional[str] = None) -> List[Citation]:
-        """Retrieve grounded NJIT resources for the given query."""
-
         results: List[Citation] = []
         if self._client:
             try:
-                async with self._client as client:
-                    search_kwargs = {
-                        "search_text": query,
-                        "top": 3,
-                        "select": [
-                            "id",
-                            "title",
-                            "url",
-                            "source",
-                            "description",
-                            "published",
-                            "tags",
-                        ],
-                    }
-                    if intent:
-                        filter_clause = self._intent_filter(intent)
-                        if filter_clause:
-                            search_kwargs["filter"] = filter_clause
+                search_kwargs = {
+                    "search_text": query,
+                    "top": 3,
+                    "select": [
+                        "id",
+                        "title",
+                        "url",
+                        "source",
+                        "description",
+                        "retrieved",
+                        "category",
+                        "tags",
+                    ],
+                }
+                if intent:
+                    filter_clause = self._intent_filter(intent)
+                    if filter_clause:
+                        search_kwargs["filter"] = filter_clause
 
-                    azure_results = await client.search(**search_kwargs)
-                    async for item in azure_results:
-                        results.append(
-                            Citation(
-                                id=str(item.get("id") or item.get("@search.action", "azure")),
-                                title=item.get("title", "NJIT Resource"),
-                                url=item.get("url", ""),
-                                source=item.get("source", "Azure AI Search"),
-                                snippet=item.get("description", ""),
-                                published=item.get("published"),
-                            )
+                azure_results = await self._client.search(**search_kwargs)
+                async for item in azure_results:
+                    results.append(
+                        Citation(
+                            id=str(item.get("id") or item.get("@search.action", "azure")),
+                            title=item.get("title", "NJIT Resource"),
+                            url=item.get("url", ""),
+                            source=item.get("source", "Azure AI Search"),
+                            snippet=item.get("description", ""),
+                            retrieved=item.get("retrieved"),
                         )
-            except Exception as exc:  # pragma: no cover - network/runtime guard
-                LOGGER.warning("Azure Search request failed: %s", exc)
+                    )
+            except Exception as exc:
+                LOGGER.exception("Azure Search request failed", exc_info=exc)
 
         if results:
             return results[:3]
@@ -149,4 +153,3 @@ class SearchService:
             snippet=item.get("description", ""),
             published=item.get("published"),
         )
-
