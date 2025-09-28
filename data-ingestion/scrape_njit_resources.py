@@ -4,11 +4,17 @@ import json
 import logging
 import re
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Dict, Any
+<<<<<<< HEAD
 from urllib.parse import urljoin, urlparse, urlunparse
 import google.generativeai as genai
+=======
+from urllib.parse import urljoin, urlparse, urlunparse, parse_qs
+
+>>>>>>> 5567c5d887964a74ee508c622a23a564fa2fe9c9
 import httpx
 from bs4 import BeautifulSoup
 from robotexclusionrulesparser import RobotExclusionRulesParser
@@ -206,6 +212,9 @@ class WebScraper:
         # politeness per host
         await self._polite_wait(parsed.netloc)
 
+        if "campuslabs" in parsed.netloc:
+            return await self._extract_campuslabs_events(client=client, parsed=parsed)
+
         # guarded concurrency
         async with self.sem:
             try:
@@ -220,11 +229,8 @@ class WebScraper:
 
         soup = BeautifulSoup(r.text, "html.parser")
         meta = self._extract_metadata(soup)
-        #text = self._extract_main_text(soup)
         if ".njit.edu" in parsed.netloc:
             text = self._extract_main_text(soup, preferred_div_id="block-system-main")
-        elif "campuslabs" in parsed.netloc:
-            return self._extract_campuslabs_events(base_url=parsed.netloc)
         else:
             text = self._extract_main_text(soup, preferred_div_id=None)
 
@@ -273,59 +279,203 @@ class WebScraper:
         async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
             tasks = [self.fetch(client, u) for u in urls]
             results = await asyncio.gather(*tasks)
-        return [r for r in results if r]
 
-    def _extract_campuslabs_events(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, Any]]:
+        records: List[Dict[str, Any]] = []
+        for result in results:
+            if not result:
+                continue
+            if isinstance(result, list):
+                records.extend(result)
+            else:
+                records.append(result)
+
+        return records
+
+    async def _extract_campuslabs_events(self, client: httpx.AsyncClient, parsed) -> List[Dict[str, Any]]:
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        path = parsed.path.rstrip("/")
+        if "/engage/event/" in path:
+            event_id = path.split("/engage/event/", 1)[1].split("/")[0]
+            record = await self._campuslabs_fetch_single_event(client=client, base_url=base_url, event_id=event_id)
+            return [record] if record else []
+        return await self._campuslabs_search_events(client=client, parsed=parsed, base_url=base_url)
+
+    async def _campuslabs_search_events(self, client: httpx.AsyncClient, parsed, base_url: str) -> List[Dict[str, Any]]:
+        api_url = f"{base_url}/engage/api/discovery/event/search"
+        params: Dict[str, str] = {
+            "orderBy": "StartDate",
+            "status": "Approved",
+            "endsAfter": datetime.now(timezone.utc).isoformat(),
+            "take": "50",
+        }
+
+        query_params = parse_qs(parsed.query)
+        if "categories" in query_params:
+            params["categoryIds"] = ",".join(query_params["categories"])
+        if "categoryIds" in query_params:
+            params["categoryIds"] = ",".join(query_params["categoryIds"])
+        if "branchIds" in query_params:
+            params["branchIds"] = ",".join(query_params["branchIds"])
+        if "benefitIds" in query_params:
+            params["benefitIds"] = ",".join(query_params["benefitIds"])
+        if "theme" in query_params:
+            params["themes"] = ",".join(query_params["theme"])
+        if "query" in query_params and query_params["query"]:
+            params["query"] = query_params["query"][0]
+
+        passthrough = {
+            "endsAfter": "endsAfter",
+            "startsAfter": "startsAfter",
+            "startsBefore": "startsBefore",
+            "endsBefore": "endsBefore",
+            "take": "take",
+            "skip": "skip",
+        }
+        for key, target in passthrough.items():
+            values = query_params.get(key)
+            if values:
+                params[target] = values[0]
+
+        if "page" in query_params and query_params["page"]:
+            try:
+                page = max(int(query_params["page"][0]) - 1, 0)
+                take = int(params.get("take", "50"))
+                params["skip"] = str(page * take)
+            except ValueError:
+                pass
+
+        try:
+            async with self.sem:
+                resp = await client.get(api_url, params=params, timeout=20)
+        except Exception as exc:
+            LOGGER.warning("CampusLabs API request failed: %s (%s)", api_url, exc)
+            return []
+
+        if resp.status_code >= 400:
+            LOGGER.info("CampusLabs API status %s for %s", resp.status_code, api_url)
+            return []
+
+        try:
+            payload = resp.json()
+        except Exception as exc:
+            LOGGER.warning("CampusLabs API JSON decode failed: %s", exc)
+            return []
+
         events: List[Dict[str, Any]] = []
-        anchors = soup.select('#event-discovery-list a[href*="/engage/event/"]')
-        for a in anchors:
-            href = self._normalize_url(base_url, a.get("href"))
-            title_el = a.select_one("h3")
-            title = title_el.get_text(strip=True) if title_el else (href or "CampusLabs Event")
-
-            rows = a.select('div[style*="padding: 0.5rem 0px 1rem 1rem"] > div')
-            dt_text = rows[0].get_text(strip=True) if len(rows) >= 1 else None
-            location = rows[1].get_text(strip=True) if len(rows) >= 2 else None
-
-            start_iso = None
-            if dt_text:
-                try:
-                    norm = dt_text.replace(" at ", " ")
-                    start_iso = dtparse.parse(norm, fuzzy=True).isoformat()
-                except Exception:
-                    pass
-
-            org = None
-            org_span = a.select_one('div[style*="background-color: rgb(249, 249, 249)"] span')
-            if org_span:
-                org = org_span.get_text(strip=True)
-
-            img_div = a.select_one('div[role="img"]')
-            image = None
-            if img_div:
-                rel = self._bg_image_from_style(img_div.get("style", ""))
-                image = urljoin(base_url, rel) if rel else None
-
-            parts = [p for p in [dt_text, location, org] if p]
-            desc = " • ".join(parts) if parts else ""
-
-            tags = ["events"]
-            low = (title or "").lower()
-            for kw in ["soccer", "hackathon", "workshop", "career", "seminar", "club", "athletics", "fair"]:
-                if kw in low:
-                    tags.append(kw)
-
-            events.append({
-                "id": (href or title).rstrip("/"),
-                "title": title,
-                "url": href or "",
-                "source": urlparse(href or base_url).netloc,
-                "description": desc or (title or "")[:200],
-                "retrieved": None,
-                "tags": tags,
-                "text": " | ".join([t for t in [title, dt_text, location, org] if t])
-            })
+        for item in payload.get("value", []):
+            record = self._campuslabs_event_to_record(base_url, item)
+            if record:
+                events.append(record)
         return events
+
+    async def _campuslabs_fetch_single_event(self, client: httpx.AsyncClient, base_url: str, event_id: str) -> Optional[Dict[str, Any]]:
+        api_url = f"{base_url}/engage/api/discovery/event/{event_id}"
+        try:
+            async with self.sem:
+                resp = await client.get(api_url, timeout=20)
+        except Exception as exc:
+            LOGGER.warning("CampusLabs event fetch failed: %s (%s)", api_url, exc)
+            return None
+
+        if resp.status_code >= 400:
+            LOGGER.info("CampusLabs event status %s for %s", resp.status_code, api_url)
+            return None
+
+        try:
+            payload = resp.json()
+        except Exception as exc:
+            LOGGER.warning("CampusLabs event JSON decode failed: %s", exc)
+            return None
+
+        return self._campuslabs_event_to_record(base_url, payload)
+
+    def _campuslabs_event_to_record(self, base_url: str, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        event_id = item.get("id")
+        if event_id is None:
+            return None
+        event_id_str = str(event_id)
+        event_url = item.get("url") or f"{base_url}/engage/event/{event_id_str}"
+
+        title = item.get("name") or "Highlander Hub Event"
+        description_html = item.get("description") or ""
+        description = self._strip_html(description_html)
+        if not description:
+            summary = item.get("summary")
+            if summary:
+                description = self._clean_text(str(summary))
+
+        location = item.get("location")
+        address = item.get("address")
+        if not location and isinstance(address, dict):
+            location = address.get("name") or address.get("address")
+
+        organization = item.get("organizationName") or ""
+        start_iso = item.get("startsOn")
+        end_iso = item.get("endsOn")
+
+        tags: List[str] = ["events", "campuslabs"]
+        for name in item.get("categoryNames", []):
+            if name:
+                tags.append(name.lower())
+        for category in item.get("categories", []):
+            if isinstance(category, dict):
+                name = category.get("name")
+                if name:
+                    tags.append(name.lower())
+        if item.get("theme"):
+            tags.append(str(item["theme"]).lower())
+        if organization:
+            tags.append(organization.lower())
+
+        tags = sorted({t for t in tags if t})
+
+        text_parts = [
+            title,
+            organization,
+            location,
+            f"Starts: {start_iso}" if start_iso else None,
+            f"Ends: {end_iso}" if end_iso else None,
+            description,
+        ]
+        text = " | ".join(self._clean_text(part) for part in text_parts if part)
+
+        snippet = description[:300] if description else (location or "")
+
+        record: Dict[str, Any] = {
+            "id": f"campuslabs-{event_id_str}",
+            "title": title,
+            "url": event_url,
+            "source": urlparse(event_url).netloc,
+            "description": snippet,
+            "retrieved": start_iso,
+            "tags": tags,
+            "text": text,
+        }
+
+        image_url = item.get("imageUrl")
+        if not image_url:
+            image_path = item.get("imagePath")
+            if image_path:
+                image_url = f"https://se-images.campuslabs.com/clink/images/{image_path}"
+        if image_url:
+            record["image"] = image_url
+        if organization:
+            record["organization"] = organization
+        if location:
+            record["location"] = location
+        if start_iso:
+            record["startsOn"] = start_iso
+        if end_iso:
+            record["endsOn"] = end_iso
+
+        return record
+
+    @staticmethod
+    def _strip_html(html: str) -> str:
+        if not html:
+            return ""
+        return WebScraper._clean_text(BeautifulSoup(html, "html.parser").get_text(" ", strip=True))
+
 
 # ---------------------------------------------------------------------
 # SearchService (scrapes first if corpus missing/outdated, then searches)
