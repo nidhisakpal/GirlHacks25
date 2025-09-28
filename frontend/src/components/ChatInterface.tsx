@@ -30,11 +30,11 @@ import athenaPortrait from '../Images/Logos/Athena_Logo.png'
 import aphroditePortrait from '../Images/Logos/Aphrodite_Logo.png'
 import artemisPortrait from '../Images/Logos/Artemis_Logo.png'
 import tychePortrait from '../Images/Logos/Tyche_Logo.png'
-import gaiaFeature from '../Images/Goddesses/Gaia_noBG.png'
-import athenaFeature from '../Images/Goddesses/Athena_noBG.png'
+import gaiaFeature from '../Images/Goddesses/Gaia_NoBG.png'
+import athenaFeature from '../Images/Goddesses/Athena_NoBG.png'
 import aphroditeFeature from '../Images/Goddesses/Aphrodite_noBG.png'
-import artemisFeature from '../Images/Goddesses/Artemis_noBG.png'
-import tycheFeature from '../Images/Goddesses/Tyche_noBG.png'
+import artemisFeature from '../Images/Goddesses/Artemis_NoBG.png'
+import tycheFeature from '../Images/Goddesses/Tyche_NoBG.png'
 
 const goddessTabs = ['gaia', 'athena', 'aphrodite', 'artemis', 'tyche'] as const
 type GoddessKey = typeof goddessTabs[number]
