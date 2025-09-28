@@ -63,6 +63,8 @@ class User(BaseModel):
     selected_goddess: Optional[str] = None
     suggested_goddess: Optional[str] = None
     handoff_stage: Optional[str] = None       # e.g. "awaiting_choice", "awaiting_confirmation"
+    routing_state: Optional[Dict[str, Any]] = None
+    handoff_declined: Optional[Dict[str, Any]] = None
     quiz_results: Optional[Dict[str, Any]] = None
     intents_seen: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
