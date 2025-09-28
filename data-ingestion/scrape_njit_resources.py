@@ -328,23 +328,23 @@ if __name__ == "__main__":
         svc = SearchService()
         # 1) Build/refresh corpus from a starter set of pages
         seed_urls = [
-    "https://www.njit.edu/",
+    "https://www.njit.edu",
     "https://njit.campuslabs.com/engage/events",
     "https://www.njit.edu/financialaid/merit-based-scholarships",
     "https://www.njit.edu/financialaid/scholarship-universe-njit",
-    "https://www.njit.edu/research/",
+    "https://www.njit.edu/research",
     "https://research.njit.edu/bioscience-and-bioengineering",
     "https://research.njit.edu/data-science-and-management",
     "https://research.njit.edu/environment-and-sustainability",
     "https://research.njit.edu/robotics-and-machine-intelligence",
-    "https://research.njit.edu/uri/",
+    "https://research.njit.edu/uri",
     "https://www.njit.edu/counseling/services",
     "https://www.njit.edu/counseling/mantra-health-mental-health-wellness",
     "https://www.njit.edu/counseling/uwill-mental-health-and-wellness-service",
     "https://app.uwill.com/login",
     "https://hub.mantrahealth.com/login?utm_content=70&utm_source=schoolsitereferral&utm_medium=digital&utm_campaign=schoolsitereferral&to=%2F%3Futm_content%3D70%26utm_source%3Dschoolsitereferral%26utm_medium%3Ddigital%26utm_campaign%3Dschoolsitereferral",
     "https://www.njit.edu/tlc/facilities",
-    "https://www.njit.edu/tlc/",
+    "https://www.njit.edu/tlc",
             
            
         ]
