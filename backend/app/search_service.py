@@ -1,347 +1,151 @@
-﻿# scraper_search_service.py
-import asyncio
-import json
+﻿import json
 import logging
-import re
-import time
-from dataclasses import dataclass
+import os
 from pathlib import Path
-from typing import Iterable, List, Optional, Dict, Any
-from urllib.parse import urljoin, urlparse, urlunparse
+from typing import List, Optional
 
-import httpx
-from bs4 import BeautifulSoup
-from robotexclusionrulesparser import RobotExclusionRulesParser
+try:
+    from azure.core.credentials import AzureKeyCredential
+    from azure.search.documents.aio import SearchClient
+except ImportError:  # pragma: no cover - optional dependency
+    AzureKeyCredential = None  # type: ignore
+    SearchClient = None  # type: ignore
+
+from app.models import Citation
 
 LOGGER = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-
-# ---------------------------------------------------------------------
-# If you already have app.models.Citation, delete this dataclass and import yours.
-# ---------------------------------------------------------------------
-@dataclass
-class Citation:
-    id: str
-    title: str
-    url: str
-    source: str
-    snippet: str
-    published: Optional[str] = None
 
 
-# ---------------------------------------------------------------------
-# Utility: robots.txt check (cached per-origin)
-# ---------------------------------------------------------------------
-class RobotsCache:
-    def __init__(self, user_agent: str = "MyScraperBot/1.0 (+contact@example.com)"):
-        self.user_agent = user_agent
-        self._cache: Dict[str, RobotExclusionRulesParser] = {}
-        self._lock = asyncio.Lock()
-
-    async def allowed(self, client: httpx.AsyncClient, url: str) -> bool:
-        parsed = urlparse(url)
-        robots_url = urlunparse((parsed.scheme, parsed.netloc, "/robots.txt", "", "", ""))
-
-        async with self._lock:
-            parser = self._cache.get(robots_url)
-            if parser is None:
-                parser = RobotExclusionRulesParser()
-                try:
-                    r = await client.get(robots_url, timeout=10)
-                    if r.status_code == 200 and r.text:
-                        parser.parse(r.text)
-                    else:
-                        # No robots or not accessible → default allow
-                        parser = None
-                except Exception:
-                    parser = None
-                self._cache[robots_url] = parser  # may be None
-
-        if parser is None:
-            return True
-        return parser.is_allowed(self.user_agent, url)
-
-
-# ---------------------------------------------------------------------
-# Scraper
-# ---------------------------------------------------------------------
-class WebScraper:
-    """
-    Async scraper that:
-      - Respects robots.txt
-      - Applies polite concurrency & rate limiting
-      - Extracts title/description/date/text
-    """
-
-    def __init__(
-        self,
-        user_agent: str = "MyScraperBot/1.0 (+contact@example.com)",
-        max_concurrency: int = 5,
-        per_host_delay: float = 1.0,  # seconds between hits to same host
-    ) -> None:
-        self.user_agent = user_agent
-        self.sem = asyncio.Semaphore(max_concurrency)
-        self.per_host_delay = per_host_delay
-        self._last_hit: Dict[str, float] = {}
-        self.robots = RobotsCache(user_agent=user_agent)
-
-        # Simple per-host politeness lock
-        self._host_locks: Dict[str, asyncio.Lock] = {}
-
-    def _host_lock(self, host: str) -> asyncio.Lock:
-        if host not in self._host_locks:
-            self._host_locks[host] = asyncio.Lock()
-        return self._host_locks[host]
-
-    async def _polite_wait(self, host: str) -> None:
-        lock = self._host_lock(host)
-        async with lock:
-            now = time.time()
-            last = self._last_hit.get(host, 0)
-            wait = self.per_host_delay - (now - last)
-            if wait > 0:
-                await asyncio.sleep(wait)
-            self._last_hit[host] = time.time()
-
-    @staticmethod
-    def _normalize_url(base: str, href: Optional[str]) -> Optional[str]:
-        if not href:
-            return None
-        href = href.strip()
-        if href.startswith("#") or href.lower().startswith("javascript:"):
-            return None
-        try:
-            if bool(urlparse(href).netloc):
-                return href
-            return urljoin(base, href)
-        except Exception:
-            return None
-
-    @staticmethod
-    def _clean_text(text: str) -> str:
-        return re.sub(r"\s+", " ", text).strip()
-
-    @staticmethod
-    def _extract_metadata(soup: BeautifulSoup) -> Dict[str, Optional[str]]:
-        # Title
-        title = (soup.title.string if soup.title and soup.title.string else "") or ""
-        title = WebScraper._clean_text(title)
-
-        # Description
-        desc = ""
-        for key in ["description", "og:description", "twitter:description"]:
-            tag = soup.find("meta", attrs={"name": key}) or soup.find("meta", attrs={"property": key})
-            if tag and tag.get("content"):
-                desc = WebScraper._clean_text(tag["content"])
-                if desc:
-                    break
-
-        # Published-ish date (best effort)
-        date = None
-        for key in ["article:published_time", "og:updated_time", "date"]:
-            tag = soup.find("meta", attrs={"name": key}) or soup.find("meta", attrs={"property": key})
-            if tag and tag.get("content"):
-                date = tag["content"].strip()
-                break
-
-        # Canonical URL
-        canon = None
-        link_tag = soup.find("link", rel="canonical")
-        if link_tag and link_tag.get("href"):
-            canon = link_tag["href"].strip()
-
-        return {"title": title, "description": desc, "published": date, "canonical": canon}
-
-    @staticmethod
-    def _extract_main_text(soup: BeautifulSoup) -> str:
-        # Heuristic: prefer <article>, then main content, then all paragraphs
-        article = soup.find("article")
-        if article:
-            chunks = [p.get_text(" ", strip=True) for p in article.find_all(["p", "li"])]
-        else:
-            main = soup.find("main") or soup.body
-            chunks = [p.get_text(" ", strip=True) for p in main.find_all(["p", "li"])] if main else []
-        text = " ".join(chunks)
-        return WebScraper._clean_text(text)
-
-    async def fetch(self, client: httpx.AsyncClient, url: str) -> Optional[Dict[str, Any]]:
-        parsed = urlparse(url)
-        if not parsed.scheme.startswith("http"):
-            return None
-
-        # robots.txt
-        allowed = await self.robots.allowed(client, url)
-        if not allowed:
-            LOGGER.info("Blocked by robots.txt: %s", url)
-            return None
-
-        # politeness per host
-        await self._polite_wait(parsed.netloc)
-
-        # guarded concurrency
-        async with self.sem:
-            try:
-                r = await client.get(url, timeout=20)
-            except Exception as e:
-                LOGGER.warning("Request failed: %s (%s)", url, e)
-                return None
-
-        if r.status_code >= 400:
-            LOGGER.info("Non-OK status %s for %s", r.status_code, url)
-            return None
-
-        soup = BeautifulSoup(r.text, "html.parser")
-        meta = self._extract_metadata(soup)
-        text = self._extract_main_text(soup)
-
-        final_url = meta.get("canonical") or str(r.url)
-
-        return {
-            "id": final_url,
-            "title": meta["title"] or final_url,
-            "url": final_url,
-            "source": urlparse(final_url).netloc,
-            "description": meta["description"] or text[:300],
-            "published": meta["published"],
-            "tags": [],
-            "text": text,
-        }
-
-    async def scrape(self, urls: Iterable[str]) -> List[Dict[str, Any]]:
-        headers = {"User-Agent": self.user_agent, "Accept": "text/html,application/xhtml+xml"}
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
-            tasks = [self.fetch(client, u) for u in urls]
-            results = await asyncio.gather(*tasks)
-        return [r for r in results if r]
-
-
-# ---------------------------------------------------------------------
-# SearchService (scrapes first if corpus missing/outdated, then searches)
-# ---------------------------------------------------------------------
 class SearchService:
-    """
-    Hybrid search backed by a local scraped corpus (JSON).
-    API stays similar to your original SearchService.search(query, intent).
-    """
+    """Hybrid search over Azure AI Search with offline fallback."""
 
-    def __init__(self, corpus_path: Path = Path("data-ingestion/njit_resources.json")) -> None:
-        self.corpus_path = corpus_path
-        self._fallback_corpus = self._load_corpus()
+    def __init__(self) -> None:
+        self.endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+        self.key = os.getenv("AZURE_SEARCH_API_KEY")
+        self.index_name = os.getenv("AZURE_SEARCH_INDEX_NAME")
 
-    def _load_corpus(self) -> List[dict]:
-        if not self.corpus_path.exists():
-            LOGGER.warning("Corpus not found at %s", self.corpus_path)
-            return []
-        try:
-            with self.corpus_path.open("r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as exc:
-            LOGGER.warning("Could not load corpus: %s", exc)
-            return []
-
-    def _save_corpus(self, records: List[dict]) -> None:
-        self.corpus_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.corpus_path.open("w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=2)
-
-    async def build_or_update_corpus(self, urls: Iterable[str], replace: bool = False) -> None:
-        scraper = WebScraper()
-        new_records = await scraper.scrape(urls)
-
-        if replace or not self._fallback_corpus:
-            merged = new_records
+        self._client: Optional[SearchClient] = None
+        if (
+            self.endpoint
+            and self.key
+            and self.index_name
+            and AzureKeyCredential
+            and SearchClient
+        ):
+            self._client = SearchClient(
+                endpoint=self.endpoint,
+                index_name=self.index_name,
+                credential=AzureKeyCredential(self.key),
+            )
         else:
-            # Merge on URL/id; update existing, add new
-            by_id = {it["id"]: it for it in self._fallback_corpus}
-            for rec in new_records:
-                by_id[rec["id"]] = rec
-            merged = list(by_id.values())
+            LOGGER.warning("Azure Search configuration missing; using fallback corpus")
 
-        self._save_corpus(merged)
-        self._fallback_corpus = merged
+        self._fallback_corpus = self._load_fallback_corpus()
 
     async def search(self, query: str, intent: Optional[str] = None) -> List[Citation]:
-        """
-        Very simple keyword search over title/description/tags/text.
-        You can swap this for TF-IDF or BM25 later.
-        """
+        """Retrieve grounded NJIT resources for the given query."""
+
+        results: List[Citation] = []
+        if self._client:
+            try:
+                async with self._client as client:
+                    search_kwargs = {
+                        "search_text": query,
+                        "top": 3,
+                        "select": [
+                            "id",
+                            "title",
+                            "url",
+                            "source",
+                            "description",
+                            "retrieved",
+                            "tags",
+                        ],
+                    }
+                    if intent:
+                        filter_clause = self._intent_filter(intent)
+                        if filter_clause:
+                            search_kwargs["filter"] = filter_clause
+
+                    azure_results = await client.search(**search_kwargs)
+                    async for item in azure_results:
+                        results.append(
+                            Citation(
+                                id=str(item.get("id") or item.get("@search.action", "azure")),
+                                title=item.get("title", "NJIT Resource"),
+                                url=item.get("url", ""),
+                                source=item.get("source", "Azure AI Search"),
+                                snippet=item.get("description", ""),
+                                published=item.get("published"),
+                            )
+                        )
+            except Exception as exc:  # pragma: no cover - network/runtime guard
+                LOGGER.warning("Azure Search request failed: %s", exc)
+
+        if results:
+            return results[:3]
+
+        LOGGER.info("Falling back to local corpus for query: %s", query)
+        return self._search_fallback(query, intent)
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _intent_filter(self, intent: str) -> str:
+        mapping = {
+            "academics": "category eq 'academics'",
+            "career": "category eq 'career'",
+            "events": "category eq 'events'",
+            "wellbeing": "category eq 'wellbeing'",
+        }
+        return mapping.get(intent, "")
+
+    def _load_fallback_corpus(self) -> List[dict]:
+        data_path = (
+            Path(__file__).resolve().parents[1]
+            / "data-ingestion"
+            / "njit_resources.json"
+        )
+        if not data_path.exists():
+            return []
+        try:
+            with data_path.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception as exc:
+            LOGGER.warning("Could not load fallback corpus: %s", exc)
+            return []
+
+    def _search_fallback(self, query: str, intent: Optional[str]) -> List[Citation]:
         if not self._fallback_corpus:
-            LOGGER.info("No corpus available; nothing to search.")
             return []
 
-        q = query.lower()
-        tokens = [t for t in re.split(r"\W+", q) if t]
-        if not tokens:
-            return []
-
-        scored: List[tuple[float, dict]] = []
+        lowered = query.lower()
+        keywords = lowered.split()
+        matches: List[Citation] = []
         for item in self._fallback_corpus:
-            blob = " ".join([
-                str(item.get("title", "")),
-                str(item.get("description", "")),
-                " ".join(item.get("tags", [])),
-                str(item.get("text", "")),
-            ]).lower()
-
-            # crude scoring: count token hits; small bonus if intent is in tags
-            score = sum(blob.count(tok) for tok in tokens)
-            if intent and intent in item.get("tags", []):
-                score += 2
-
-            if score > 0:
-                scored.append((score, item))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        top = [self._citation_from_item(it, source="Scraped Corpus") for _, it in scored[:3]]
-        return top
+            text_blob = " ".join(
+                [
+                    str(item.get("title", "")),
+                    str(item.get("description", "")),
+                    " ".join(item.get("tags", [])),
+                ]
+            ).lower()
+            if keywords and all(token in text_blob for token in keywords[:3]):
+                matches.append(self._citation_from_item(item, source="Local Corpus"))
+            elif intent and intent in item.get("tags", []):
+                matches.append(self._citation_from_item(item, source="Local Corpus"))
+            if len(matches) >= 3:
+                break
+        return matches
 
     @staticmethod
     def _citation_from_item(item: dict, source: str) -> Citation:
         return Citation(
-            id=str(item.get("id", item.get("url", "scraped"))),
-            title=item.get("title", "Web Resource"),
+            id=str(item.get("id", "fallback")),
+            title=item.get("title", "NJIT Resource"),
             url=item.get("url", ""),
             source=source,
             snippet=item.get("description", ""),
             published=item.get("published"),
         )
-
-
-# ---------------------------------------------------------------------
-# Example usage (run as a script)
-# ---------------------------------------------------------------------
-if __name__ == "__main__":
-    async def main():
-        svc = SearchService()
-        # 1) Build/refresh corpus from a starter set of pages
-        seed_urls = [
-            "https://www.njit.edu/",
-            "https://njit.campuslabs.com/engage/events",
-            "https://www.njit.edu/financialaid/merit-based-scholarships",
-            "https://www.njit.edu/financialaid/scholarship-universe-njit",
-
-            # Research pages 
-            "https://www.njit.edu/research/",
-            "https://research.njit.edu/bioscience-and-bioengineering",
-            "https://research.njit.edu/data-science-and-management",
-            "https://research.njit.edu/environment-and-sustainability",
-            "https://research.njit.edu/environment-and-sustainability",
-            "https://research.njit.edu/robotics-and-machine-intelligence",
-            "https://research.njit.edu/uri/",
-
-
-            "https://www.njit.edu/counseling/services",
-
-            #Tutoring
-            "https://www.njit.edu/tlc/facilities" 
-            
-           
-        ]
-        await svc.build_or_update_corpus(seed_urls, replace=False)
-
-        # 2) Search it
-        results = await svc.search("research opportunities and events", intent="events")
-        for c in results:
-            print(f"- {c.title} [{c.url}] :: {c.snippet[:120]}...")
-
-    asyncio.run(main())
