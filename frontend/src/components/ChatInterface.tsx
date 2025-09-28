@@ -45,6 +45,7 @@ interface ChatMessage extends ApiChatMessage {
   timestamp: string
   // optional metadata carrier
   suggested?: GoddessKey     // <-- NEW (for rendering the inline card)
+  handoffReason?: string[]
 }
 
 // ----- Theming -------------------------------------------------------------
@@ -175,20 +176,21 @@ const ChatInterface: React.FC = () => {
     if (!isAuthenticated) return
     if (isHandoffPending) return // freeze until resolved
 
+    const sourceTab = activeTab
     setError(null)
     const nowISO = new Date().toISOString()
     const userMessage: ChatMessage = {
       id: `user-${nowISO}`,
       role: 'user',
       content: trimmed,
-      goddess: activeTab,
+      goddess: sourceTab,
       timestamp: nowISO,
       citations: [],
     }
 
     setMessagesByGoddess(prev => ({
       ...prev,
-      [activeTab]: [...prev[activeTab], userMessage],
+      [sourceTab]: [...prev[sourceTab], userMessage],
     }))
     if (!overrideMessage) setInputText('')
     setIsSending(true)
@@ -205,16 +207,20 @@ const ChatInterface: React.FC = () => {
       if (response.trace?.stage === 'awaiting_confirmation' && response.trace?.suggested) {
         const suggested = response.trace.suggested as GoddessKey
         setPendingRecommendation(suggested)
+        const handoffReason = Array.isArray(response.trace?.['handoff_reason'])
+          ? (response.trace['handoff_reason'] as string[])
+          : undefined
 
         const assistantMessage: ChatMessage = {
           id: `assistant-${response.timestamp ?? Date.now()}`,
           role: 'assistant',
           content: response.message || `I can connect you with ${personas[suggested]?.display_name ?? suggested}.`,
-          goddess: (response.goddess ?? activeTab) as GoddessKey,
+          goddess: (response.goddess ?? sourceTab) as GoddessKey,
           intent: response.intent ?? 'handoff_request',
           timestamp: response.timestamp ?? new Date().toISOString(),
           citations: response.citations ?? [],
           suggested, // carry to renderer
+          handoffReason,
         }
         setMessagesByGoddess(prev => ({
           ...prev,
@@ -234,10 +240,23 @@ const ChatInterface: React.FC = () => {
         citations: response.citations ?? [],
       }
 
-      setMessagesByGoddess(prev => ({
-        ...prev,
-        [assistantMessage.goddess]: [...prev[assistantMessage.goddess], assistantMessage],
-      }))
+      setMessagesByGoddess(prev => {
+        const destination = assistantMessage.goddess
+        const next: ApiChatHistory = { ...prev }
+
+        if (destination !== sourceTab) {
+          next[sourceTab] = prev[sourceTab].filter(msg => msg.id !== userMessage.id)
+          next[destination] = [
+            ...prev[destination],
+            { ...userMessage, goddess: destination },
+          ]
+        } else {
+          next[destination] = [...prev[destination]]
+        }
+
+        next[destination] = [...next[destination], assistantMessage]
+        return next
+      })
 
       if (response.goddess) {
         const key = response.goddess as GoddessKey
@@ -250,14 +269,14 @@ const ChatInterface: React.FC = () => {
       const fallbackMessage: ChatMessage = {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        goddess: activeTab,
+        goddess: sourceTab,
         content: "I ran into a technical issue reaching my scrolls. Let's retry shortly.",
         timestamp: new Date().toISOString(),
         citations: [],
       }
       setMessagesByGoddess(prev => ({
         ...prev,
-        [activeTab]: [...prev[activeTab], fallbackMessage],
+        [sourceTab]: [...prev[sourceTab], fallbackMessage],
       }))
     } finally {
       setIsSending(false)
@@ -466,6 +485,11 @@ const ChatInterface: React.FC = () => {
                         <p className="text-sm text-amber-800">
                           {personas[message.suggested]?.display_name ?? message.suggested} can take it from here. Connect you?
                         </p>
+                        {message.handoffReason && message.handoffReason.length > 0 && (
+                          <p className="mt-1 text-xs text-amber-700">
+                            Why: {message.handoffReason.join('; ')}
+                          </p>
+                        )}
                         <div className="mt-2 flex gap-2">
                           <button
                             className={clsx(
