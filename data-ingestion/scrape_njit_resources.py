@@ -8,13 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Dict, Any
 from urllib.parse import urljoin, urlparse, urlunparse
-
+import google.generativeai as genai
 import httpx
 from bs4 import BeautifulSoup
 from robotexclusionrulesparser import RobotExclusionRulesParser
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+genai.configure(api_key="$GEMINI_API_KEY")
 
 # ---------------------------------------------------------------------
 # If you already have app.models.Citation, delete this dataclass and import yours.
@@ -92,6 +94,24 @@ class WebScraper:
         if host not in self._host_locks:
             self._host_locks[host] = asyncio.Lock()
         return self._host_locks[host]
+
+    async def gemini_generate_api(text: str, max_tags: int = 10) -> list[str]:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        prompt = f"""
+            Analyze the following text and return up to {max_tags} short, relevant tags.
+            Tags should be single words or short phrases, useful for categorizing the content.
+            
+            Text:
+            {text[:4000]}  # truncate to avoid token limits
+        """
+
+        response = await model.generate_content_async(prompt)
+        raw = response.text.strip()
+
+        # Expect comma or newline separated tags → normalize
+        tags = [t.strip().lower() for t in re.split(r"[,\\n]", raw) if t.strip()]
+        return list(dict.fromkeys(tags))  # dedupe, preserve order
 
     async def _polite_wait(self, host: str) -> None:
         lock = self._host_lock(host)
@@ -212,8 +232,11 @@ class WebScraper:
         final_url = meta.get("canonical") or str(r.url)
 
         tags = []
-
-        keywords = ['research', 'academic', 'professional', 'academia', 'job', 'company visit',
+        try:
+            ai_tags = await gemini_generate_tags(text)
+            tags.extend(ai_tags)
+        except:
+            keywords = ['research', 'academic', 'professional', 'academia', 'job', 'company visit',
                     'study abroad', 'international', 'travel', 'scholarship', 'financial', 'finance',
                     'grant', 'funding', 'health', 'wellness', 'mental health', 'well being', 'study',
                     'education', 'career', 'tutorial', 'workshop', 'seminar', 'conference', 'lab', 
@@ -230,10 +253,10 @@ class WebScraper:
                     'online learning', 'mantra health', 'uwill'
                     ]
 
-        for keyword in keywords:
-            if keyword in text:
-                tags.append(keyword)
-
+            for keyword in keywords:
+                if keyword in text:
+                    tags.append(keyword)
+    
         return {
             "id": final_url.split('/')[-1].replace('.', '').replace('?', '').replace('&', ''),
             "title": meta["title"] or final_url,
