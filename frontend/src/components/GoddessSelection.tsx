@@ -32,19 +32,24 @@ const GoddessSelection: React.FC = () => {
   }, [])
 
   return (
-    <section className="mx-auto flex max-w-5xl flex-col gap-10">
-      <header className="rounded-3xl border border-indigo-100 bg-white/80 p-10 text-center shadow-sm backdrop-blur">
-        <p className="text-sm uppercase tracking-[0.3em] text-indigo-400">Gaia at GirlHacks</p>
-        <h1 className="mt-4 text-4xl font-semibold text-gray-900">NJIT mentorship in goddess form</h1>
-        <p className="mt-4 text-base text-gray-600">
-          Gaia listens to what you need, matches you with a Greek goddess persona, and pulls real NJIT resources from Highlander Hub, Handshake, and support centers. No fluff—just grounded guidance.
+    <section className="mx-auto flex max-w-5xl flex-col gap-5">
+      <header className="p-10 text-center">
+        <h1
+          className="text-6xl font-bold"
+          style={{ color: '#e5d39e', fontFamily: '"Cinzel", serif' }}
+    >
+          DISCOVER YOUR <br /> INNER GODDESS
+        </h1>
+        <p className="text-lg font-light" style={{ fontFamily: '"Inter", sans-serif', color: '#e5d39e'}}>
+          Guidance & mentorship for campus women
         </p>
         <div className="mt-8 flex justify-center">
           <button
             onClick={() => loginWithRedirect()}
-            className="flex items-center gap-2 rounded-full bg-goddess-athena px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:shadow-xl"
+            className="flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-[#1f1a2d] shadow-lg shadow-indigo-300 transition hover:shadow-xl"
+            style={{ backgroundColor: '#bda55c', fontFamily: '"Inter", sans-serif'}}
           >
-            {isAuthenticated ? 'Head to your chat' : 'Log in with your NJIT email'}
+            {isAuthenticated ? 'Head to your chat' : 'Log in with Auth0'}
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
