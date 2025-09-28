@@ -1,20 +1,22 @@
 ﻿import React, { useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
-import { ArrowRight, BookOpen, Briefcase, Heart } from 'lucide-react'
+import { ArrowRight} from 'lucide-react'
 import clsx from 'clsx'
-
 import { fetchPersonas, GoddessPersona } from '../services/api'
+import athenaImg from '../Images/Logos/Athena_Logo.png'
+import aphroditeImg from '../Images/Logos/Aphrodite_Logo.png'
+import gaiaImg from '../Images/Logos/Gaia_Logo.png'
 
 const iconMap: Record<string, JSX.Element> = {
-  athena: <BookOpen className="h-8 w-8" />,
-  aphrodite: <Heart className="h-8 w-8" />,
-  hera: <Briefcase className="h-8 w-8" />,
+  athena: <img src={athenaImg} alt="Athena" className="h-16 w-16 rounded-full object-cover" />,
+  aphrodite: <img src={aphroditeImg} alt="Aphrodite" className="h-16 w-16 rounded-full object-cover" />,
+  gaia: <img src={gaiaImg} alt="Gaia" className="h-16 w-16 rounded-full object-cover" />,
 }
 
 const accentClass: Record<string, string> = {
   athena: 'text-goddess-athena',
   aphrodite: 'text-goddess-aphrodite',
-  hera: 'text-goddess-hera',
+  gaia: 'text-goddess-gaia',
 }
 
 const GoddessSelection: React.FC = () => {
@@ -33,9 +35,9 @@ const GoddessSelection: React.FC = () => {
 
   return (
     <section className="mx-auto flex max-w-5xl flex-col gap-5">
-      <header className="p-10 text-center">
+      <header className="p-5 text-center">
         <h1
-          className="text-6xl font-bold"
+          className="text-5xl font-bold"
           style={{ color: '#e5d39e', fontFamily: '"Cinzel", serif' }}
     >
           DISCOVER YOUR <br /> INNER GODDESS
@@ -43,7 +45,7 @@ const GoddessSelection: React.FC = () => {
         <p className="text-lg font-light" style={{ fontFamily: '"Inter", sans-serif', color: '#e5d39e'}}>
           Guidance & mentorship for campus women
         </p>
-        <div className="mt-8 flex justify-center">
+        <div className="mt-4 flex justify-center">
           <button
             onClick={() => loginWithRedirect()}
             className="flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-[#1f1a2d] shadow-lg shadow-indigo-300 transition hover:shadow-xl"

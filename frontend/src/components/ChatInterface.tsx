@@ -33,11 +33,11 @@ const goddessThemes: Record<string, { avatar: string; accent: string; bubble: st
     bubble: 'border-goddess-aphrodite/40',
     badge: 'bg-goddess-aphrodite/10 text-goddess-aphrodite',
   },
-  hera: {
-    avatar: 'bg-goddess-hera/90',
-    accent: 'text-goddess-hera',
-    bubble: 'border-goddess-hera/40',
-    badge: 'bg-goddess-hera/10 text-goddess-hera',
+  gaia: {
+    avatar: 'bg-goddess-gaia/90',
+    accent: 'text-goddess-gaia',
+    bubble: 'border-goddess-gaia/40',
+    badge: 'bg-goddess-gaia/10 text-goddess-gaia',
   },
 }
 
@@ -188,7 +188,7 @@ const ChatInterface: React.FC = () => {
               {persona?.display_name ?? 'Athena'} is listening
             </h2>
             <p className="max-w-2xl text-sm text-gray-600">
-              {persona?.tagline ?? 'Share what you need—Gaia matches you with the right goddess guide for grounded, NJIT-specific help.'}
+              {persona?.tagline ?? 'Share what you needï¿½Gaia matches you with the right goddess guide for grounded, NJIT-specific help.'}
             </p>
           </div>
         </div>
