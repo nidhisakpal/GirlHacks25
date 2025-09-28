@@ -210,7 +210,7 @@ class WebScraper:
         final_url = meta.get("canonical") or str(r.url)
 
         return {
-            "id": final_url,
+            "id": final_url.split('/')[-1].replace('.', '').replace('?', '').replace('&', ''),
             "title": meta["title"] or final_url,
             "url": final_url,
             "source": urlparse(final_url).netloc,
@@ -374,7 +374,7 @@ async def add_manual_resources(manual: List[Dict[str, Any]], corpus_path: str = 
 
 asyncio.run(add_manual_resources([
   {
-    "id": "https://www.khanacademy.org/",
+    "id": "khanacademy",
     "title": "Khan Academy",
     "url": "https://www.khanacademy.org/",
     "source": "Khan Academy",
@@ -384,7 +384,7 @@ asyncio.run(add_manual_resources([
     "text": "Educational videos and exercises across math, physics, chemistry, computer science, finance, and test prep."
   },
   {
-    "id": "https://www.geeksforgeeks.org/",
+    "id": "geeksforgeeks",
     "title": "GeeksforGeeks",
     "url": "https://www.geeksforgeeks.org/",
     "source": "GeeksforGeeks",
@@ -394,7 +394,7 @@ asyncio.run(add_manual_resources([
     "text": "Articles, coding practice, and learning resources for programming, data structures, algorithms, and technical interview prep."
   },
   {
-    "id": "https://www.youtube.com/@alexlorenlee",
+    "id": "alexlorenlee",
     "title": "Alex Lorén Lee",
     "url": "https://www.youtube.com/@alexlorenlee",
     "source": "YouTube",
@@ -404,7 +404,7 @@ asyncio.run(add_manual_resources([
     "text": "YouTube channel focused on mathematics with intuitive explanations and detailed walkthroughs of problem-solving methods."
   },
   {
-    "id": "https://www.youtube.com/@PhysicsNinja",
+    "id": "PhysicsNinja",
     "title": "Physics Ninja",
     "url": "https://www.youtube.com/@PhysicsNinja",
     "source": "YouTube",
