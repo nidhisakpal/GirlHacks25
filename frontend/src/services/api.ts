@@ -20,12 +20,15 @@ export interface ApiCitation {
 }
 
 export interface ApiChatMessage {
+  id?: string
   role: 'user' | 'assistant'
   content: string
   goddess?: string
   intent?: string
   citations?: ApiCitation[]
   timestamp: string
+  suggested?: string
+  handoffReason?: string[]
 }
 
 export interface ApiChatHistory {

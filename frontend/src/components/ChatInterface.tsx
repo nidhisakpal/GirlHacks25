@@ -255,7 +255,7 @@ const ChatInterface: React.FC = () => {
         }
         setMessagesByGoddess(prev => ({
           ...prev,
-          [assistantMessage.goddess]: [...prev[assistantMessage.goddess], assistantMessage],
+          [assistantMessage.goddess as GoddessKey]: [...prev[assistantMessage.goddess as GoddessKey], assistantMessage],
         }))
         return
       }
@@ -272,7 +272,7 @@ const ChatInterface: React.FC = () => {
       }
 
       setMessagesByGoddess(prev => {
-        const destination = assistantMessage.goddess
+        const destination = assistantMessage.goddess as GoddessKey
         const next: ApiChatHistory = { ...prev }
 
         if (destination !== sourceTab) {
@@ -338,7 +338,7 @@ const ChatInterface: React.FC = () => {
       }
       setMessagesByGoddess(prev => ({
         ...prev,
-        [assistantMessage.goddess]: [...prev[assistantMessage.goddess], assistantMessage],
+        [assistantMessage.goddess as GoddessKey]: [...prev[assistantMessage.goddess as GoddessKey], assistantMessage],
       }))
 
       if (action === 'confirm' && response.goddess) {
@@ -396,7 +396,7 @@ const ChatInterface: React.FC = () => {
       tagline:
         'Share what you need—Gaia matches you with the right goddess guide for grounded, NJIT-specific help.',
     }
-  const theme = getTheme(currentGoddess)
+  // const theme = getTheme(currentGoddess)
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-6 lg:flex-row lg:items-start">
@@ -555,13 +555,13 @@ const ChatInterface: React.FC = () => {
                         </p>
                       )}
 
-                      {isHandoffCard && message.suggested && isHandoffPending && (
+                      {isHandoffCard && (message as ChatMessage).suggested && isHandoffPending && (
                         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
                           <p className="text-sm text-amber-800">
-                            {personas[message.suggested]?.display_name ?? message.suggested} can take it from here. Connect you?
+                            {personas[(message as ChatMessage).suggested!]?.display_name ?? (message as ChatMessage).suggested} can take it from here. Connect you?
                           </p>
-                          {message.handoffReason?.length ? (
-                            <p className="mt-1 text-xs text-amber-700">Why: {message.handoffReason.join('; ')}</p>
+                          {(message as ChatMessage).handoffReason?.length ? (
+                            <p className="mt-1 text-xs text-amber-700">Why: {(message as ChatMessage).handoffReason!.join('; ')}</p>
                           ) : null}
                           <div className="mt-2 flex gap-2">
                             <button
@@ -605,11 +605,11 @@ const ChatInterface: React.FC = () => {
                         </div>
                       )}
 
-                      {isAssistant && message.citations?.length > 0 && (
+                      {isAssistant && message.citations && message.citations.length > 0 && (
                         <div className="space-y-1">
                           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Sources</p>
                           <div className="flex flex-wrap gap-2">
-                            {message.citations.map(citation => (
+                            {message.citations!.map(citation => (
                               <a
                                 key={`${message.id}-${citation.url}`}
                                 href={citation.url}
