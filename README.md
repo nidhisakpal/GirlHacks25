@@ -1,4 +1,5 @@
-# Gaia — Goddess-Guided Mentorship: First Place at GirlHacks '25, hosted by Women in Computer Science (WiCS) @ NJIT.
+# Gaia — Goddess-Guided Mentorship
+# First Place at GirlHacks '25, hosted by Women in Computer Science (WiCS) @ NJIT.
 
 
 Gaia pairs women on campus with Greek goddess mentors who deliver grounded, citation-backed guidance. Students describe what they need and Gaia matches intent to a persona. Athena for academics, Aphrodite for well-being, Artemis for professional help like jobs and research, Tyche for scholarships and returns actionable next steps with live campus-specific links.
